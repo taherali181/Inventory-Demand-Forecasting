@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>Inventory Forecasting App</title>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Inventory Forecasting Application</h1>
+        <div class="mt-4">
+            <h3>Upload Sales Data</h3>
+            <input type="file" id="fileInput" class="form-control">
+            <button onclick="uploadFile()" class="btn btn-primary mt-2">Upload</button>
+        </div>
+        <div class="mt-4">
+            <h3>Forecast Inventory</h3>
+            <input type="number" id="forecastHorizon" class="form-control" placeholder="Enter forecast horizon (days)">
+            <button onclick="getForecast()" class="btn btn-success mt-2">Get Forecast</button>
+            <div id="forecastResult" class="mt-3"></div>
+        </div>
+        <div class="mt-4">
+            <h3>Chatbot Assistance</h3>
+            <input type="text" id="chatInput" class="form-control" placeholder="Ask a question">
+            <button onclick="chat()" class="btn btn-info mt-2">Send</button>
+            <div id="chatResponse" class="mt-3"></div>
+        </div>
+    </div>
+    <script>
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            alert(result.message || result.error);
+        }
+
+        async function getForecast() {
+            const response = await fetch('/forecast');
+            const result = await response.json();
+            document.getElementById('forecastResult').innerText = JSON.stringify(result);
+        }
+
+        async function chat() {
+            const userInput = document.getElementById('chatInput').value;
+            const response = await fetch(`/chatbot/chat/${userInput}`);
+            const result = await response.json();
+            document.getElementById('chatResponse').innerText = result.response;
+        }
+    </script>
+</body>
+</html>
