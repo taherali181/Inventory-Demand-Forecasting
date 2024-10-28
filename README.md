@@ -62,8 +62,8 @@ Installation
 
 Clone the repository:
 
-'git clone <repository_url>
-cd inventory_forecasting_app'
+`git clone <repository_url>
+cd inventory_forecasting_app`
 
 Install dependencies:
 
