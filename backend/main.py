@@ -1,10 +1,8 @@
 # main.py
 import logging
-import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 
 import models  # noqa: F401 -- registers all tables on Base.metadata before create_all()
 from chatbot import app as chatbot_app
@@ -39,12 +37,3 @@ app.include_router(upload.router)
 app.include_router(forecast.router)
 app.include_router(eda.router)
 app.mount("/chatbot", chatbot_app)
-
-# Legacy static Bootstrap frontend. Slated for removal in Phase 2 once the
-# React app is rebuilt and becomes the one real frontend.
-_FRONTEND_INDEX = os.path.join(os.path.dirname(__file__), "frontend", "index.html")
-
-
-@app.get("/")
-async def serve_frontend():
-    return FileResponse(_FRONTEND_INDEX)

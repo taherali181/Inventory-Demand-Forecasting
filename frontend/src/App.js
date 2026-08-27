@@ -1,24 +1,34 @@
-import logo from './logo.svg';
+import React from 'react';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import './App.css';
+import Navbar from './components/Navbar';
+import { AuthProvider } from './context/AuthContext';
+import DashboardPage from './pages/DashboardPage';
+import EdaPage from './pages/EdaPage';
+import ForecastPage from './pages/ForecastPage';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import UploadPage from './pages/UploadPage';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <AuthProvider>
+      <BrowserRouter>
+        <div className="App">
+          <Navbar />
+          <main className="app-main">
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/upload" element={<UploadPage />} />
+              <Route path="/forecast" element={<ForecastPage />} />
+              <Route path="/eda" element={<EdaPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+            </Routes>
+          </main>
+        </div>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

@@ -1,8 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders the navbar brand', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByText(/inventory forecasting/i)).toBeInTheDocument();
+});
+
+test('renders the dashboard by default', () => {
+  render(<App />);
+  expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument();
 });
