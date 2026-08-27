@@ -9,11 +9,11 @@ app (warehouses, suppliers, products, stock levels + audit trail, low-stock aler
 receiving) with real per-product/warehouse demand forecasting, a SQLite/SQLAlchemy database, JWT auth, a
 React frontend actually wired to the backend, CI, and Docker. `IMPROVEMENT_PLAN.md` (repo root) is a
 verified-against-the-code Phase 7–11 roadmap (security hardening → performance → architecture → UX →
-new features) picking up from there; Phase 7 (security hardening) and Phase 8 (performance & scalability —
-Alembic, background tasks for upload/EDA/forecast, N+1 fixes, pagination, FK indexes) are done — check
-`git log` for what's actually landed. `README.md` is current and is the right starting point for a
-features/endpoints overview; this file covers the parts that need multiple files read together to
-understand.
+new features) picking up from there; Phase 7 (security hardening), Phase 8 (performance & scalability —
+Alembic, background tasks for upload/EDA/forecast, N+1 fixes, pagination, FK indexes), and Phase 9
+(architecture & code quality — see below) are done — check `git log` for what's actually landed. `README.md`
+is current and is the right starting point for a features/endpoints overview; this file covers the parts
+that need multiple files read together to understand.
 
 Everything below was verified by actually running it each phase (pytest, `npm run build`/`test`, and live
 `uvicorn`/`npm start` smoke tests against real HTTP requests) rather than only reviewed by eye — see commit
@@ -117,9 +117,15 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   FK columns (`StockLevel`/`StockMovement`/`PurchaseOrder`/`PurchaseOrderItem`/`Alert`) are indexed —
   added in the Change 8.8 migration once these tables were getting queried by FK in hot paths (alerts
   recompute, stock lookups). Schema changes go through Alembic (`backend/alembic/`) — see "Migrations"
-  above; there is no `Base.metadata.create_all()` call left in the app itself.
+  above; there is no `Base.metadata.create_all()` call left in the app itself. `Product.stock_levels`/
+  `Warehouse.stock_levels` are explicit `back_populates` pairs with `StockLevel.product`/`.warehouse` —
+  added deliberately, not blanket-applied to every relationship (most stay one-directional; add a pair only
+  when something actually needs to traverse it, per `IMPROVEMENT_PLAN.md` Change 9.9's "be conservative").
+  `schemas.PurchaseOrderCreate` rejects a payload with the same `product_id` in more than one line item
+  (a `@model_validator`, 422) — combine quantities into one line item instead.
 - `config.py` — pydantic-settings `Settings` (`.env`-driven: `DATABASE_URL`, `JWT_SECRET_KEY`,
-  `environment`), plus the `PROCESSED_DATA_PATH`/`DATA_DIR` path constants used by the CSV pipeline below.
+  `environment`, `holiday_country`), plus the `PROCESSED_DATA_PATH`/`DATA_DIR` path constants used by the
+  CSV pipeline below.
   `environment="production"` + a still-default `JWT_SECRET_KEY` makes `auth.py` refuse to start
   (`check_production_secret_is_safe`) rather than silently run insecurely.
 - `auth.py` / `routers/auth.py` — JWT access tokens (15 min) + opaque refresh tokens (30 days, hashed at
@@ -146,9 +152,18 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   acquiring locks), the re-query needs `.populate_existing()` or SQLAlchemy's identity map silently hands
   back the stale cached object instead of the fresh one — confirmed by the same kind of test failure
   (20 concurrent receipts landing 3) before that was added.
-- `features.py` — shared date-feature engineering (year/month/day/weekday/weekend/India-holiday
-  flag/cyclical month encoding), used by both `data_processing.py` (CSV → EDA path) and `forecasting.py`
-  (DB-driven forecasting path). Not persisted anywhere — recomputed on demand.
+- `features.py` — shared date-feature engineering (year/month/day/weekday/weekend/holiday flag/cyclical
+  month encoding), used by both `data_processing.py` (CSV → EDA path) and `forecasting.py` (DB-driven
+  forecasting path). Not persisted anywhere — recomputed on demand. Holiday country defaults to
+  `config.settings.holiday_country` (`"IN"`), overridable per call. **Two real, previously-silent bugs
+  here, both fixed in Phase 9** (found via `tests/test_features.py`, not just code review — the "holidays"
+  feature column had likely always evaluated to 0 for every date before this): (1) `holidays`'s
+  `HolidayBase` populates lazily per year on first access, and `pandas.Series.isin()` never triggers that
+  lazy expansion the way Python's `in` operator does — fixed by eagerly passing `years=` covering the
+  dates being engineered; (2) `holidays`' keys are plain `datetime.date` while `dates` is
+  datetime64/Timestamp, which `.isin()` treats as never-equal even for the same calendar day — fixed by
+  comparing against `dates.dt.date`, not `dates` itself. If you touch this function, keep both fixes; either
+  one alone still silently returns 0 for every row.
 - `ingest.py` — bridges the legacy `store`/`item` CSV columns into real `Warehouse`/`Product` rows
   (auto-created, `source='legacy_import'`) and upserts into `sales_records`. Idempotent by
   `(date, product, warehouse)` — re-uploading the same file persists 0 new rows. The existence check is a
@@ -171,8 +186,13 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   `run_forecast_training_in_background(run_id)` is scheduled via `BackgroundTasks` from `routers/forecast.py`
   and does the actual training. Trains on all `sales_records` history for the pair and predicts
   `forecast_horizon` genuine future calendar days (not a backtest — that was the pre-Phase-5 bug:
-  predictions on a historical held-out split, mislabeled as a forecast). Three `model_type`s:
-  `random_forest`, `exponential_smoothing` (statsmodels), `moving_average`. Raises
+  predictions on a historical held-out split, mislabeled as a forecast). `ModelType` (a `Literal["moving_
+  average", "random_forest", "exponential_smoothing"]`) is the single source of truth for the three
+  supported types — `schemas.ForecastRequest.model_type` is typed with the same alias, so an unknown value
+  is a 422 from Pydantic before this module is ever reached, not the runtime `ValueError` direct/
+  programmatic callers (tests, scripts) still get from `_validate_forecast_params`. Every prediction is
+  clipped to `>= 0` before being persisted (`max(0.0, float(predicted_sales))`) — none of the three models
+  enforce that on their own; a declining trend can genuinely extrapolate negative. Raises
   `InsufficientHistoryError` under `MIN_HISTORY_ROWS` (10). Models persist via `joblib` to
   `backend/data/models/{run_id}.joblib` (gitignored; `moving_average` has no model object, so none is
   written); rereading a run via `GET /forecast/{id}` must not touch that file's mtime — if it does,
@@ -182,14 +202,27 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   import captures the production engine at import time, invisible to `tests/conftest.py`'s per-test
   session override, and the request's own session may already be closed by the time a background task
   actually runs.
+  - `exponential_smoothing` reindexes to a continuous daily series (`asfreq("D")`), which introduces NaN
+    for any date with no `sales_records` row at all (this app's data has no explicit zero-sales rows, only
+    gaps). `gap_fill_strategy` (`schemas.ForecastRequest`, persisted on `ForecastRun.params`) controls how
+    those gaps are handled: `"zero"` (default — a gap means nothing sold, the more defensible retail
+    assumption) or `"interpolate"` (the old, always-on behavior — fabricates values across the gap via
+    linear interpolation, which can make a real stockout read as smoothed positive sales; kept as an
+    explicit opt-in, not removed).
+  - `random_forest` trains on `lag_1`, `lag_7`, `rolling_mean_7`, `rolling_mean_28` in addition to the
+    plain date features (see `_build_lag_rolling_features`). `lag_1`/`lag_7` are real values only — rows
+    without one yet are dropped, never fabricated — but the rolling means use `min_periods=1` (a real,
+    if noisier, average of however many prior days exist) rather than requiring a full 28-day warm-up,
+    which would conflict with `MIN_HISTORY_ROWS=10` and make this model type effectively unusable for most
+    of this app's realistic history lengths — a deliberate deviation from a literal 28-day rolling window,
+    not an oversight (see `tests/test_forecasting.py::test_random_forest_trains_at_the_min_history_rows_
+    floor`). Forecasting multiple days ahead is recursive (`_predict_future_with_lags`): each day's own
+    prediction becomes the lag/rolling basis for the days after it, since there's no real "actual" once
+    you're past the last known day.
 - `eda.py` — renders matplotlib/seaborn charts server-side to base64 PNGs, called from
   `upload_processing.py`'s background task rather than inline in the request handler. Must keep
   `matplotlib.use("Agg")` at import time and never call `plt.show()` — an interactive backend will
   hang/error when it's not running on a display thread.
-- `chatbot.py` — a separate, minimal `FastAPI()` app mounted into `main.py` at `/chatbot`. Purely
-  rule-based (a 3-entry dict keyed on exact lowercase string match), no LLM involved, deliberately not
-  covered by `rate_limit.py`'s limiter (see `main.py`'s comment) — slated for removal, not hardening
-  (`IMPROVEMENT_PLAN.md` Change 9.2).
 - `tests/conftest.py` — the `db_session` fixture overrides `get_db` with an isolated per-test SQLite file
   **and** monkeypatches `database.SessionLocal` to the same test session factory, so background-task code
   that opens its own session (see above) also lands in the test DB. Also has a `_reset_rate_limits`

@@ -9,7 +9,7 @@ later GET on an existing run re-reads its stored predictions without
 retraining — see routers/forecast.py.
 """
 import logging
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple, get_args
 
 import joblib
 import numpy as np
@@ -21,14 +21,22 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 import database
 from config import DATA_DIR
-from features import FEATURE_COLUMNS, engineer_date_features
+from features import FEATURE_COLUMNS, LAG_FEATURE_COLUMNS, engineer_date_features
 from models import ForecastPrediction, ForecastRun, ForecastStatus, SalesRecord
 
 logger = logging.getLogger(__name__)
 
 MODEL_DIR = DATA_DIR / "models"
 MIN_HISTORY_ROWS = 10
-VALID_MODEL_TYPES = {"moving_average", "random_forest", "exponential_smoothing"}
+
+# The Literal is the single source of truth for the three supported model
+# types — schemas.ForecastRequest.model_type is typed with the same alias,
+# so FastAPI/Pydantic reject an unknown value with a 422 before this module
+# is ever reached. VALID_MODEL_TYPES is derived from it (not hand-kept in
+# sync) for the few call sites here that still want a plain set/error
+# message rather than a type-level check.
+ModelType = Literal["moving_average", "random_forest", "exponential_smoothing"]
+VALID_MODEL_TYPES = set(get_args(ModelType))
 
 
 class InsufficientHistoryError(ValueError):
@@ -89,11 +97,84 @@ def _forecast_moving_average(history: pd.DataFrame, horizon: int, window: int = 
     return [forecast_value] * horizon, rmse, mae, None
 
 
-def _forecast_random_forest(history: pd.DataFrame, horizon: int):
-    features = engineer_date_features(history["date"])
-    X, y = features[FEATURE_COLUMNS], history["sales"]
+RF_FEATURE_COLUMNS = FEATURE_COLUMNS + LAG_FEATURE_COLUMNS
 
-    holdout_size = max(1, int(len(history) * 0.2))
+
+def _daily_series(history: pd.DataFrame) -> pd.Series:
+    """history reindexed to one row per calendar day between its min and
+    max date, gaps filled with 0 — matches the zero gap-fill assumption in
+    _forecast_exponential_smoothing (a missing day means nothing sold).
+    Lag/rolling features need a continuous daily index to mean what their
+    names say (a true "yesterday", not "the previous row, whenever that
+    was")."""
+    return history.set_index("date")["sales"].asfreq("D").fillna(0)
+
+
+def _build_lag_rolling_features(daily: pd.Series) -> pd.DataFrame:
+    """lag_1/lag_7 are the real prior-day/prior-week values only — rows
+    where either isn't available yet (the first 7 days of the series) are
+    left as NaN here and dropped by the caller, never fabricated.
+    rolling_mean_7/28 use min_periods=1, so they're a real (if noisier)
+    average of however many prior days actually exist rather than another
+    value to drop — using a hard 28-day warm-up before the model can train
+    at all would conflict with MIN_HISTORY_ROWS=10 and make RandomForest
+    unusable for most of this app's realistic history lengths; an
+    expanding-then-rolling average is the right tradeoff here, not a
+    deviation for its own sake."""
+    return pd.DataFrame(
+        {
+            "date": daily.index,
+            "sales": daily.values,
+            "lag_1": daily.shift(1).values,
+            "lag_7": daily.shift(7).values,
+            "rolling_mean_7": daily.shift(1).rolling(7, min_periods=1).mean().values,
+            "rolling_mean_28": daily.shift(1).rolling(28, min_periods=1).mean().values,
+        }
+    )
+
+
+def _predict_future_with_lags(model, daily: pd.Series, horizon: int) -> list:
+    """Recursive multi-step forecast: there's no real "actual" once we're
+    past the last known day, so each day's own prediction becomes the lag
+    basis for the days after it (the closest available proxy — carrying
+    forward actual values where they exist, predicted ones once they run
+    out, per IMPROVEMENT_PLAN.md Change 9.7)."""
+    series = daily.copy()
+    predictions = []
+    for future_date in _future_dates(daily.index.max(), horizon):
+        date_feats = engineer_date_features(pd.Series([future_date])).iloc[0]
+        row = pd.DataFrame(
+            [
+                {
+                    **date_feats[FEATURE_COLUMNS].to_dict(),
+                    "lag_1": series.iloc[-1],
+                    "lag_7": series.iloc[-7],
+                    "rolling_mean_7": series.tail(7).mean(),
+                    "rolling_mean_28": series.tail(28).mean(),
+                }
+            ]
+        )[RF_FEATURE_COLUMNS]
+        predicted = float(model.predict(row)[0])
+        predictions.append(predicted)
+        series.loc[future_date] = predicted
+    return predictions
+
+
+def _forecast_random_forest(history: pd.DataFrame, horizon: int):
+    daily = _daily_series(history)
+    lagged = _build_lag_rolling_features(daily)
+    date_features = engineer_date_features(lagged["date"]).reset_index(drop=True)
+    engineered = pd.concat([lagged.reset_index(drop=True), date_features], axis=1)
+    engineered = engineered.dropna(subset=["lag_1", "lag_7"])  # cold-start rows only, never fabricated
+
+    X, y = engineered[RF_FEATURE_COLUMNS], engineered["sales"]
+
+    # Same "at least 1 train, at least 1 holdout" guard as
+    # _forecast_exponential_smoothing's holdout split — with a MIN_HISTORY_
+    # ROWS=10 floor, post-dropna X can be as small as 3 rows (10-day
+    # history, lag_7 needs the first 7 days), where a plain int(len*0.2)
+    # holdout would be 0.
+    holdout_size = max(1, min(int(len(X) * 0.2), len(X) - 1))
     X_train, X_holdout = X.iloc[:-holdout_size], X.iloc[-holdout_size:]
     y_train, y_holdout = y.iloc[:-holdout_size], y.iloc[-holdout_size:]
 
@@ -101,19 +182,31 @@ def _forecast_random_forest(history: pd.DataFrame, horizon: int):
     eval_model.fit(X_train, y_train)
     rmse, mae = _evaluate(y_holdout, eval_model.predict(X_holdout))
 
-    # Refit on the full history before predicting the future — the holdout
-    # split above is purely for the reported rmse/mae, not the final model.
+    # Refit on the full (post-dropna) history before predicting the future —
+    # the holdout split above is purely for the reported rmse/mae.
     final_model = RandomForestRegressor(n_estimators=200, random_state=42)
     final_model.fit(X, y)
 
-    future_dates = _future_dates(history["date"].max(), horizon)
-    future_features = engineer_date_features(pd.Series(future_dates))
-    predictions = final_model.predict(future_features[FEATURE_COLUMNS])
-    return predictions.tolist(), rmse, mae, final_model
+    predictions = _predict_future_with_lags(final_model, daily, horizon)
+    return predictions, rmse, mae, final_model
 
 
-def _forecast_exponential_smoothing(history: pd.DataFrame, horizon: int):
-    series = history.set_index("date")["sales"].asfreq("D").interpolate()
+GapFillStrategy = Literal["zero", "interpolate"]
+
+
+def _forecast_exponential_smoothing(history: pd.DataFrame, horizon: int, gap_fill_strategy: GapFillStrategy = "zero"):
+    # asfreq("D") introduces NaN rows for any date missing from history
+    # (e.g. a real stockout day with no sales_records row at all — this
+    # data has no explicit zero-sales rows, only gaps). The default,
+    # "zero", treats a gap as zero demand: the more defensible retail
+    # assumption for this app's data (a missing day means nothing sold,
+    # not "unknown, so smooth over it"). "interpolate" (the old default)
+    # remains available as an explicit opt-in for callers who know their
+    # gaps really are missing/unreliable data rather than genuine zero-sales
+    # days — it fabricates values across the gap via linear interpolation,
+    # which can make a real stockout read as smoothed positive sales.
+    series = history.set_index("date")["sales"].asfreq("D")
+    series = series.interpolate() if gap_fill_strategy == "interpolate" else series.fillna(0)
 
     holdout_size = max(1, min(int(len(series) * 0.2), len(series) - 2))
     train, holdout = series.iloc[:-holdout_size], series.iloc[-holdout_size:]
@@ -151,7 +244,10 @@ def _train_and_predict(db: Session, run: ForecastRun) -> None:
         elif run.model_type == "random_forest":
             predictions, rmse, mae, model = _forecast_random_forest(history, run.forecast_horizon)
         else:
-            predictions, rmse, mae, model = _forecast_exponential_smoothing(history, run.forecast_horizon)
+            gap_fill_strategy = (run.params or {}).get("gap_fill_strategy", "zero")
+            predictions, rmse, mae, model = _forecast_exponential_smoothing(
+                history, run.forecast_horizon, gap_fill_strategy
+            )
 
         future_dates = _future_dates(history["date"].max(), run.forecast_horizon)
         for forecast_date, predicted_sales in zip(future_dates, predictions):
@@ -159,7 +255,12 @@ def _train_and_predict(db: Session, run: ForecastRun) -> None:
                 ForecastPrediction(
                     forecast_run_id=run.id,
                     forecast_date=forecast_date.date(),
-                    predicted_sales=float(predicted_sales),
+                    # Sales can't be negative. None of the three models
+                    # (moving average, RandomForest, exponential smoothing)
+                    # enforce that on their own — a declining trend can
+                    # genuinely extrapolate below zero — so clip here,
+                    # after prediction, rather than in each model function.
+                    predicted_sales=max(0.0, float(predicted_sales)),
                 )
             )
 
@@ -193,6 +294,7 @@ def create_forecast_run(
     model_type: str,
     forecast_horizon: int,
     created_by: Optional[int] = None,
+    gap_fill_strategy: GapFillStrategy = "zero",
 ) -> ForecastRun:
     """Synchronous, single-session, train-immediately path: creates the run
     and trains it before returning. For direct/programmatic callers (tests,
@@ -201,6 +303,11 @@ def create_forecast_run(
     request on training. Behaves identically to before this split existed:
     raises on invalid params or insufficient history, returns a completed
     (or raises on failure) run otherwise.
+
+    `gap_fill_strategy` only affects model_type="exponential_smoothing" —
+    see _forecast_exponential_smoothing. Persisted on run.params so
+    _train_and_predict can read it back regardless of which path (this one,
+    or the background-task path below) actually trains the run.
     """
     _validate_forecast_params(model_type, forecast_horizon)
 
@@ -211,6 +318,7 @@ def create_forecast_run(
         forecast_horizon=forecast_horizon,
         status=ForecastStatus.pending,
         created_by=created_by,
+        params={"gap_fill_strategy": gap_fill_strategy},
     )
     db.add(run)
     db.flush()  # assigns run.id, needed by _train_and_predict, without committing yet
@@ -228,6 +336,7 @@ def create_pending_forecast_run(
     model_type: str,
     forecast_horizon: int,
     created_by: Optional[int] = None,
+    gap_fill_strategy: GapFillStrategy = "zero",
 ) -> ForecastRun:
     """Validates params and inserts+commits a status=pending ForecastRun
     immediately, without training. Pair with
@@ -251,6 +360,7 @@ def create_pending_forecast_run(
         forecast_horizon=forecast_horizon,
         status=ForecastStatus.pending,
         created_by=created_by,
+        params={"gap_fill_strategy": gap_fill_strategy},
     )
     db.add(run)
     db.commit()

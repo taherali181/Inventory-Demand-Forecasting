@@ -7,7 +7,6 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from chatbot import app as chatbot_app
 from config import CORS_ALLOWED_ORIGINS
 from rate_limit import limiter
 from routers import alerts, auth, eda, forecast, products, purchase_orders, stock, suppliers, upload, warehouses
@@ -33,9 +32,7 @@ app.add_middleware(
 
 # Rate limiting: a strict per-route limit is applied directly to
 # /auth/login and /auth/register (see routers/auth.py) to blunt credential
-# stuffing/brute force. The chatbot sub-app (a separate FastAPI() instance,
-# see chatbot.py) deliberately isn't covered — it's slated for removal
-# rather than hardening.
+# stuffing/brute force.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -50,4 +47,3 @@ app.include_router(products.router)
 app.include_router(stock.router)
 app.include_router(alerts.router)
 app.include_router(purchase_orders.router)
-app.mount("/chatbot", chatbot_app)

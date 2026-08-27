@@ -94,7 +94,6 @@ All endpoints are documented interactively at `/docs`. Broad strokes:
 | Alerts | `GET /alerts`, `POST /alerts/recompute` |
 | Purchase orders | `GET/POST /purchase-orders`, `PUT /purchase-orders/{id}/status`, `POST /purchase-orders/{id}/receive` |
 | Forecast | `POST /forecast`, `GET /forecast`, `GET /forecast/{id}` |
-| Chatbot | `GET /chatbot/chat/{user_input}` (rule-based, no LLM) |
 
 ## License
 

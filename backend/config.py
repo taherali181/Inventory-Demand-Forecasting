@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # the insecure-default-secret startup guard in auth.py.
     environment: str = "development"
 
+    # ISO 3166-1 alpha-2 country code passed to the `holidays` package for
+    # the "holidays" feature column in features.py. Validated against
+    # holidays.list_supported_countries() at first use, not here, to avoid
+    # importing the (large) holidays package at settings-load time.
+    holiday_country: str = "IN"
+
 
 settings = Settings()
 

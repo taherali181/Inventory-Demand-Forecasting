@@ -44,11 +44,20 @@ _ALLOWED_TRANSITIONS = {
 }
 
 
+PO_NUMBER_MAX_ATTEMPTS = 10
+
+
 def _generate_po_number(db: Session) -> str:
-    while True:
+    # 32 bits of entropy per attempt makes a real collision astronomically
+    # unlikely at this app's scale, but an unbounded `while True` is still
+    # a latent hang if something ever goes wrong (e.g. a bug that always
+    # regenerates the same candidate). Bounded defensively, not because a
+    # collision has ever actually been observed.
+    for _ in range(PO_NUMBER_MAX_ATTEMPTS):
         candidate = f"PO-{uuid.uuid4().hex[:8].upper()}"
         if not db.query(PurchaseOrder).filter(PurchaseOrder.po_number == candidate).first():
             return candidate
+    raise RuntimeError(f"Could not generate a unique PO number after {PO_NUMBER_MAX_ATTEMPTS} attempts.")
 
 
 @router.get("", response_model=PaginatedResponse[PurchaseOrderRead])

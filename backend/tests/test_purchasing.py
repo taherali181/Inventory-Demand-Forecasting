@@ -5,8 +5,13 @@ from contextlib import contextmanager
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 
+import uuid
+
+import pytest
+
 from main import app
 from conftest import promote_to_admin
+from routers.purchase_orders import PO_NUMBER_MAX_ATTEMPTS, _generate_po_number
 
 client = TestClient(app)
 
@@ -273,3 +278,46 @@ def test_purchase_order_rejects_unknown_supplier(db_session):
         headers=headers,
     )
     assert response.status_code == 400
+
+
+def test_purchase_order_rejects_duplicate_product_line_items(db_session):
+    headers = _auth_headers(db_session, "po-dup-product@example.com", "testpass123")
+    supplier, warehouse, product = _setup_supplier_warehouse_product(headers)
+
+    response = client.post(
+        "/purchase-orders",
+        json={
+            "supplier_id": supplier["id"],
+            "warehouse_id": warehouse["id"],
+            "items": [
+                {"product_id": product["id"], "quantity_ordered": 5},
+                {"product_id": product["id"], "quantity_ordered": 3},
+            ],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "combine its quantities" in response.text
+
+
+def test_generate_po_number_gives_up_after_max_attempts_on_persistent_collisions(db_session, monkeypatch):
+    # Force every candidate to collide with itself (a fixed uuid) so
+    # _generate_po_number never finds a free number — asserts it raises
+    # after PO_NUMBER_MAX_ATTEMPTS instead of looping forever.
+    fixed = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    monkeypatch.setattr(uuid, "uuid4", lambda: fixed)
+
+    db = db_session()
+    try:
+        first = _generate_po_number(db)  # succeeds — nothing with this number exists yet
+        assert first == f"PO-{fixed.hex[:8].upper()}"
+
+        from models import PurchaseOrder
+
+        db.add(PurchaseOrder(po_number=first, supplier_id=1, warehouse_id=1))
+        db.commit()
+
+        with pytest.raises(RuntimeError, match=str(PO_NUMBER_MAX_ATTEMPTS)):
+            _generate_po_number(db)  # every candidate now collides with `first`
+    finally:
+        db.close()

@@ -32,6 +32,26 @@ def test_forecast_requires_existing_product_and_warehouse(db_session):
     assert response.status_code == 404
 
 
+def test_forecast_rejects_unknown_model_type_with_422(db_session):
+    db = db_session()
+    try:
+        warehouse, product = _seed_product_warehouse_with_history(db)
+        warehouse_id, product_id = warehouse.id, product.id
+    finally:
+        db.close()
+
+    # model_type is a Literal in schemas.ForecastRequest now, so an unknown
+    # value is rejected by Pydantic validation (422) before the request
+    # handler runs at all — not the old runtime ValueError from
+    # forecasting._validate_forecast_params (still exercised directly by
+    # test_forecasting.py for callers that bypass the API).
+    response = client.post(
+        "/forecast",
+        json={"product_id": product_id, "warehouse_id": warehouse_id, "model_type": "prophet", "forecast_horizon": 5},
+    )
+    assert response.status_code == 422
+
+
 def test_forecast_rejects_insufficient_history(db_session):
     db = db_session()
     try:

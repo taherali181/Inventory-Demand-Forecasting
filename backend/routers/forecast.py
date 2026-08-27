@@ -38,6 +38,7 @@ def forecast(
             model_type=payload.model_type,
             forecast_horizon=payload.forecast_horizon,
             created_by=current_user.id if current_user else None,
+            gap_fill_strategy=payload.gap_fill_strategy,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

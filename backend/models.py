@@ -69,6 +69,8 @@ class Warehouse(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
+    stock_levels: Mapped[List["StockLevel"]] = relationship(back_populates="warehouse")
+
 
 class Supplier(Base):
     __tablename__ = "suppliers"
@@ -104,6 +106,7 @@ class Product(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     default_supplier: Mapped[Optional["Supplier"]] = relationship()
+    stock_levels: Mapped[List["StockLevel"]] = relationship(back_populates="product")
 
 
 class StockLevel(Base):
@@ -117,8 +120,8 @@ class StockLevel(Base):
     quantity_reserved: Mapped[int] = mapped_column(Integer, default=0)
     last_updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
-    product: Mapped["Product"] = relationship()
-    warehouse: Mapped["Warehouse"] = relationship()
+    product: Mapped["Product"] = relationship(back_populates="stock_levels")
+    warehouse: Mapped["Warehouse"] = relationship(back_populates="stock_levels")
 
     @property
     def quantity_available(self) -> int:

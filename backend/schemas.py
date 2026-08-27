@@ -7,8 +7,9 @@ ORM schema this mirrors.
 import datetime as dt
 from typing import Generic, List, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
+from forecasting import GapFillStrategy, ModelType
 from models import AlertStatus, ForecastStatus, MovementType, PurchaseOrderStatus, UserRole
 
 T = TypeVar("T")
@@ -222,6 +223,18 @@ class PurchaseOrderCreate(BaseModel):
     expected_delivery_date: Optional[dt.date] = None
     items: List[PurchaseOrderItemCreate]
 
+    @model_validator(mode="after")
+    def _reject_duplicate_products(self) -> "PurchaseOrderCreate":
+        seen = set()
+        for item in self.items:
+            if item.product_id in seen:
+                raise ValueError(
+                    f"product_id {item.product_id} appears more than once — combine its quantities into a "
+                    "single line item instead of listing the product twice."
+                )
+            seen.add(item.product_id)
+        return self
+
 
 class PurchaseOrderRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -254,8 +267,11 @@ class PurchaseOrderReceive(BaseModel):
 class ForecastRequest(BaseModel):
     product_id: int
     warehouse_id: int
-    model_type: str = "random_forest"
+    model_type: ModelType = "random_forest"
     forecast_horizon: int = Field(default=7, gt=0, le=365)
+    # Only affects model_type="exponential_smoothing" — see
+    # forecasting._forecast_exponential_smoothing for what each value means.
+    gap_fill_strategy: GapFillStrategy = "zero"
 
 
 class ForecastPredictionRead(BaseModel):
