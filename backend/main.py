@@ -6,11 +6,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+import models  # noqa: F401 -- registers all tables on Base.metadata before create_all()
 from chatbot import app as chatbot_app
 from config import CORS_ALLOWED_ORIGINS
-from routers import eda, forecast, upload
+from database import Base, engine
+from routers import auth, eda, forecast, upload
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# Auto-creates tables that don't exist yet; safe to call on every startup.
+# Swap for Alembic migrations once schema changes need to preserve data
+# (tracked for Phase 6 — see the project plan).
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Inventory Forecasting API")
 
@@ -27,6 +34,7 @@ app.add_middleware(
 # once Phase 1 lands.
 app.state.data_path = None
 
+app.include_router(auth.router)
 app.include_router(upload.router)
 app.include_router(forecast.router)
 app.include_router(eda.router)

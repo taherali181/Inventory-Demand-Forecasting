@@ -25,8 +25,10 @@ def _sample_csv_bytes(rows: int = 20) -> bytes:
 
 
 @pytest.fixture(autouse=True)
-def isolate_data_path(tmp_path, monkeypatch):
-    """Point uploads at a throwaway path and reset shared app state between tests."""
+def isolate_data_path(tmp_path, monkeypatch, db_session):
+    """Point uploads at a throwaway CSV path + DB and reset shared app state
+    between tests. Depends on db_session (from conftest.py) so every test in
+    this file gets an isolated database too, since /upload now writes to it."""
     monkeypatch.setattr("data_processing.PROCESSED_DATA_PATH", tmp_path / "processed_data_temp.csv")
     app.state.data_path = None
     yield
