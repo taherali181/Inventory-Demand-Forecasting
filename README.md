@@ -1,128 +1,98 @@
-Inventory Forecasting Application
+# Inventory Demand Forecasting
 
-Overview
+A FastAPI + React inventory management app: track warehouses, suppliers, products, and stock levels; get
+low-stock alerts; run purchase orders through receiving; and forecast future demand per product/warehouse
+from real sales history (RandomForest, exponential smoothing, or a moving-average baseline).
 
-This project is an Inventory Forecasting Application developed using Python, FastAPI, and machine learning techniques. The goal is to forecast inventory levels using historical sales data and provide a chatbot interface for user interaction. The application features a web-based frontend for ease of use.
+It started as a small sales-forecasting prototype (a CSV of `date, store, item, sales` in, a
+RandomForest-based prediction out) and has been rebuilt in phases into the app described here — see `git
+log` and `CLAUDE.md` for how it got here and what's still in progress.
 
-Project Structure
+## Features
 
-The project is organized into the following directory structure:
+- **Inventory CRUD** — warehouses, suppliers, products (with reorder point/safety stock/reorder quantity),
+  and per-warehouse stock levels with a full audit trail of every adjustment.
+- **Low-stock alerts** — compares available stock against each product's reorder point and opens/resolves
+  alerts accordingly.
+- **Purchase orders** — draft → submitted → approved → (partially) received, with partial receiving that
+  updates stock and the audit trail.
+- **Forecasting** — trains on a product/warehouse's real sales history and predicts real future days ahead
+  (not a backtest). Three interchangeable models: RandomForest, exponential smoothing, or a moving-average
+  baseline. Trained models and results persist, so re-fetching a forecast doesn't retrain it.
+- **Legacy CSV import** — the original `date, store, item, sales` CSV format still works: uploading one
+  auto-creates the corresponding warehouses/products and feeds both EDA (charts + summary stats) and the
+  sales history forecasting trains on.
+- **Auth** — JWT-based; reads are open, writes require an account. Optional in the sense that nothing
+  breaks if you never log in on a single-user setup — you just can't create/edit/delete records.
 
-inventory_forecasting_app/
-├── main.py  # Entry point for FastAPI application
-├── chatbot.py  # Chatbot interface implementation
-├── forecasting.py  # Forecasting logic implementation
-├── data_processing.py  # Data upload and validation functions
-├── eda.py  # Exploratory Data Analysis implementation
-├── requirements.txt  # Dependencies list
-├── README.md  # Documentation
-├── tests/  # Unit tests
-├── data/  # Folder to store sample CSV files
-└── frontend/  # Frontend implementation
+## Project layout
 
-Features
+```
+backend/            FastAPI app (see CLAUDE.md for the full module-by-module breakdown)
+  routers/          One file per resource: auth, upload, forecast, eda, warehouses,
+                     suppliers, products, stock, alerts, purchase_orders
+  models.py          SQLAlchemy ORM schema
+  forecasting.py      Model training/prediction (Phase 5 rewrite — real future forecasts)
+  tests/
+frontend/           Create React App + react-router-dom
+  src/api/            One module per backend resource
+  src/pages/          One page per route
+  src/components/
+```
 
-Data Upload and Processing:
+## Running locally
 
-Users can upload a CSV file containing historical sales data.
+### Backend
 
-The application validates the uploaded file to ensure it follows the expected format.
-
-Forecasting Logic:
-
-Implements both basic and advanced forecasting techniques.
-
-Uses a simple moving average for short-term forecasts and RandomForestRegressor for more advanced forecasting.
-
-Chatbot Interface:
-
-A conversational chatbot is implemented to assist users in navigating the application.
-
-Users can ask questions related to data upload, forecast parameters, and general help.
-
-Frontend Implementation:
-
-A simple web-based frontend is created using HTML, CSS, and JavaScript.
-
-Users can upload files, get forecasts, and interact with the chatbot through the frontend.
-
-Error Handling:
-
-Error handling is implemented for data upload, user input validation, and chatbot interactions to ensure a smooth user experience.
-
-Deployment:
-
-The application can be deployed on a cloud service like Heroku or any FastAPI-compatible platform.
-
-Testing:
-
-Unit tests are provided to validate each component of the application.
-
-Installation
-
-Clone the repository:
-
-`git clone <repository_url>
-cd inventory_forecasting_app`
-
-Install dependencies:
-
-pip install -r requirements.txt
-
-Run the FastAPI application:
-
+```bash
+cd backend
+pip install -r ../requirements.txt
+cp .env.example .env   # optional — sane defaults work without it
 uvicorn main:app --reload
+```
 
-Access the Frontend:
+API docs: http://127.0.0.1:8000/docs. Tests: `pytest` (run from `backend/`).
 
-Open your browser and navigate to http://127.0.0.1:8000/frontend/index.html to use the web interface.
+### Frontend
 
-Usage
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # optional — defaults to http://127.0.0.1:8000
+npm start
+```
 
-Upload Sales Data
+Opens at http://localhost:3000. Tests: `npm test`. Build: `npm run build`.
 
-Use the /upload endpoint to upload a CSV file containing historical sales data.
+### Docker
 
-The file should contain columns such as date, store, item, and sales.
+```bash
+docker compose up --build
+```
 
-Get Forecast
+Backend on :8000, frontend on :3000. SQLite data persists in a named volume across restarts.
 
-Use the /forecast endpoint to get inventory forecasts based on the uploaded data.
+## Configuration
 
-The application provides both a moving average forecast and an advanced machine learning-based forecast.
+Backend config is `.env`-driven (see `backend/.env.example`): `DATABASE_URL` (SQLite by default, any
+SQLAlchemy-supported URL works — e.g. Postgres) and `JWT_SECRET_KEY` (**must** be overridden to a real
+secret outside local development). Frontend config is `frontend/.env.example`:
+`REACT_APP_API_BASE_URL`, read at build/start time (CRA doesn't support runtime env vars).
 
-Chatbot Assistance
+## API overview
 
-Use the /chatbot/chat/{user_input} endpoint to interact with the chatbot for help regarding the application.
+All endpoints are documented interactively at `/docs`. Broad strokes:
 
-Frontend
+| Area | Endpoints |
+|---|---|
+| Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` |
+| Upload/EDA | `POST /upload`, `GET /eda` |
+| Inventory | `GET/POST/PUT/DELETE /warehouses`, `/suppliers`, `/products`; `GET /stock`, `POST /stock/adjust` |
+| Alerts | `GET /alerts`, `POST /alerts/recompute` |
+| Purchase orders | `GET/POST /purchase-orders`, `PUT /purchase-orders/{id}/status`, `POST /purchase-orders/{id}/receive` |
+| Forecast | `POST /forecast`, `GET /forecast`, `GET /forecast/{id}` |
+| Chatbot | `GET /chatbot/chat/{user_input}` (rule-based, no LLM) |
 
-A simple frontend is provided to facilitate user interaction.
+## License
 
-Users can upload data, request forecasts, and interact with the chatbot through a web interface.
-
-Testing
-
-Unit tests are included to validate the forecasting logic and other components:
-
-Requirements
-
-The requirements.txt file should include the following dependencies:
-
-fastapi
-uvicorn
-pandas
-numpy
-scikit-learn
-matplotlib
-seaborn
-holidays
-
-License
-
-This project is licensed under the MIT License. Feel free to use and modify it.
-
-Contact
-
-For any questions or suggestions, please contact [your_email@example.com].
-
+MIT.

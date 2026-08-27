@@ -14,13 +14,14 @@ that self-test entirely. Passwords are capped at 72 bytes via schemas.py
 (bcrypt's own limit) so callers get a clean 422 instead of a 500.
 """
 import datetime as dt
-import os
 from typing import Optional
 
 import bcrypt
 import jwt
 
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-secret-change-me")
+from config import settings
+
+SECRET_KEY = settings.jwt_secret_key
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
