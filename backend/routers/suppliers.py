@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Supplier, User
-from routers.auth import get_current_user
+from routers.auth import require_admin
 from schemas import SupplierCreate, SupplierRead, SupplierUpdate
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
@@ -22,7 +22,7 @@ def list_suppliers(include_inactive: bool = False, db: Session = Depends(get_db)
 
 @router.post("", response_model=SupplierRead, status_code=status.HTTP_201_CREATED)
 def create_supplier(
-    payload: SupplierCreate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)
+    payload: SupplierCreate, db: Session = Depends(get_db), _current_user: User = Depends(require_admin)
 ):
     supplier = Supplier(**payload.model_dump())
     db.add(supplier)
@@ -44,7 +44,7 @@ def update_supplier(
     supplier_id: int,
     payload: SupplierUpdate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_admin),
 ):
     supplier = db.get(Supplier, supplier_id)
     if supplier is None:
@@ -58,7 +58,7 @@ def update_supplier(
 
 @router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_supplier(
-    supplier_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)
+    supplier_id: int, db: Session = Depends(get_db), _current_user: User = Depends(require_admin)
 ):
     supplier = db.get(Supplier, supplier_id)
     if supplier is None:

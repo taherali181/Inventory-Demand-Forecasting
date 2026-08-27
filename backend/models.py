@@ -42,6 +42,21 @@ class User(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class RefreshToken(Base):
+    """Opaque refresh tokens (see auth.generate_refresh_token/hash_refresh_token).
+    Only the SHA-256 hash is stored, never the raw token. revoked_at is set on
+    logout (or could be set on password change, if that's added later)."""
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class Warehouse(Base):
     __tablename__ = "warehouses"
 
@@ -186,6 +201,15 @@ class SalesRecord(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     date: Mapped[dt.date] = mapped_column(Date, index=True)
+    # Nullable by design, not oversight: ingest.py's _get_or_create_warehouse/
+    # _get_or_create_product always resolve-or-create a real row before a
+    # SalesRecord is written, so in practice these are never actually null —
+    # but the legacy CSV bridge (store/item columns with no prior Warehouse/
+    # Product) needs the *option* of accepting a row before its warehouse/
+    # product exists. Tightening to non-nullable would require either a
+    # blocking pre-validation pass over the whole upload or silently
+    # dropping rows referencing not-yet-created entities — worse than the
+    # nullable column. Revisit only if legacy CSV ingestion is retired.
     warehouse_id: Mapped[Optional[int]] = mapped_column(ForeignKey("warehouses.id"), nullable=True)
     product_id: Mapped[Optional[int]] = mapped_column(ForeignKey("products.id"), nullable=True)
     sales: Mapped[float] = mapped_column(Float)

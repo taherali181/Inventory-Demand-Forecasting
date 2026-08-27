@@ -1,14 +1,22 @@
 # tests/test_inventory.py
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi.testclient import TestClient
 
 from main import app
+from conftest import promote_to_admin
 
 client = TestClient(app)
 
 
-def _auth_headers(email="inv@example.com", password="testpass123"):
+def _auth_headers(db_session, email="inv@example.com", password="testpass123"):
+    """Registers a user, logs in, and promotes them to admin — every test in
+    this file creates warehouses/products/suppliers, which require_admin now
+    gates (see Phase 7 RBAC). test_rbac.py separately covers the staff-gets-
+    403/admin-succeeds distinction itself."""
     client.post("/auth/register", json={"email": email, "password": password})
     token = client.post("/auth/login", json={"email": email, "password": password}).json()["access_token"]
+    promote_to_admin(db_session, email)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -16,7 +24,7 @@ def test_warehouse_crud_requires_auth_for_writes(db_session):
     unauth_response = client.post("/warehouses", json={"name": "Main", "code": "MAIN"})
     assert unauth_response.status_code == 401
 
-    headers = _auth_headers()
+    headers = _auth_headers(db_session)
     create_response = client.post("/warehouses", json={"name": "Main", "code": "MAIN"}, headers=headers)
     assert create_response.status_code == 201
     warehouse_id = create_response.json()["id"]
@@ -40,7 +48,7 @@ def test_warehouse_crud_requires_auth_for_writes(db_session):
 
 
 def test_product_rejects_unknown_supplier(db_session):
-    headers = _auth_headers("supplier-check@example.com", "testpass123")
+    headers = _auth_headers(db_session, "supplier-check@example.com", "testpass123")
     response = client.post(
         "/products",
         json={"sku_code": "SKU-BAD", "name": "Widget", "default_supplier_id": 999999},
@@ -50,7 +58,7 @@ def test_product_rejects_unknown_supplier(db_session):
 
 
 def test_product_and_stock_adjustment_flow(db_session):
-    headers = _auth_headers("stock@example.com", "testpass123")
+    headers = _auth_headers(db_session, "stock@example.com", "testpass123")
 
     warehouse = client.post("/warehouses", json={"name": "W1", "code": "W1"}, headers=headers).json()
     product = client.post(
@@ -91,3 +99,35 @@ def test_stock_adjust_requires_auth(db_session):
         "/stock/adjust", json={"product_id": 1, "warehouse_id": 1, "quantity_delta": 1}
     )
     assert response.status_code == 401
+
+
+def test_concurrent_stock_adjustments_all_land(db_session):
+    """Regression test for the with_for_update() row lock added in Phase 7
+    (Change 7.6): fires many concurrent +1 adjustments at the same
+    product/warehouse and asserts the final total reflects every one of
+    them. SQLite (used in tests) has no real FOR UPDATE support and
+    Python's GIL limits true interleaving, so this can't force the exact
+    lost-update race the lock defends against on Postgres — but it's a
+    solid regression guard on the read-modify-write logic itself, and
+    confirms with_for_update() doesn't error out under SQLite."""
+    headers = _auth_headers(db_session, "concurrency@example.com", "testpass123")
+    warehouse = client.post("/warehouses", json={"name": "W", "code": "CONC-W"}, headers=headers).json()
+    product = client.post(
+        "/products", json={"sku_code": "CONC-SKU", "name": "Widget"}, headers=headers
+    ).json()
+
+    def adjust_by_one():
+        return client.post(
+            "/stock/adjust",
+            json={"product_id": product["id"], "warehouse_id": warehouse["id"], "quantity_delta": 1},
+            headers=headers,
+        )
+
+    adjustment_count = 20
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        responses = list(executor.map(lambda _: adjust_by_one(), range(adjustment_count)))
+
+    assert all(r.status_code == 200 for r in responses)
+
+    final = client.get(f"/stock?product_id={product['id']}&warehouse_id={warehouse['id']}").json()
+    assert final[0]["quantity_on_hand"] == adjustment_count

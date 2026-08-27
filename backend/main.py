@@ -3,11 +3,15 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 import models  # noqa: F401 -- registers all tables on Base.metadata before create_all()
 from chatbot import app as chatbot_app
 from config import CORS_ALLOWED_ORIGINS
 from database import Base, engine
+from rate_limit import limiter
 from routers import alerts, auth, eda, forecast, products, purchase_orders, stock, suppliers, upload, warehouses
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -26,6 +30,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting: a strict per-route limit is applied directly to
+# /auth/login and /auth/register (see routers/auth.py) to blunt credential
+# stuffing/brute force. The chatbot sub-app (a separate FastAPI() instance,
+# see chatbot.py) deliberately isn't covered — it's slated for removal
+# rather than hardening.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # Path to the most recently uploaded/processed dataset. Single-tenant stopgap
 # (was a bare global before) — replaced by per-user records in the database

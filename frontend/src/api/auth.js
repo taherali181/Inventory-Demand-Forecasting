@@ -13,3 +13,7 @@ export function login({ email, password }) {
 export function getCurrentUser() {
   return client.get('/auth/me').then((res) => res.data);
 }
+
+export function logoutRequest(refreshToken) {
+  return client.post('/auth/logout', { refresh_token: refreshToken });
+}

@@ -1,5 +1,6 @@
 # routers/purchase_orders.py
 import uuid
+from contextlib import ExitStack
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,10 +13,10 @@ from models import (
     PurchaseOrder,
     PurchaseOrderItem,
     PurchaseOrderStatus,
-    StockLevel,
     StockMovement,
     Supplier,
     User,
+    UserRole,
     Warehouse,
 )
 from routers.auth import get_current_user
@@ -25,6 +26,7 @@ from schemas import (
     PurchaseOrderReceive,
     PurchaseOrderStatusUpdate,
 )
+from stock_ops import get_or_create_stock_level, stock_level_lock
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
 
@@ -107,8 +109,18 @@ def update_purchase_order_status(
     po_id: int,
     payload: PurchaseOrderStatusUpdate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    """Handles every status transition for a PO. Most transitions
+    (submit/approve) are routine staff operations; cancellation is
+    administrative — it can throw away an in-flight order a staff member
+    doesn't own — so it's checked here rather than via a separate
+    admin-only endpoint, since it's still fundamentally "the same action"
+    (a status transition) as the rest of this function.
+    """
+    if payload.status == PurchaseOrderStatus.cancelled and current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Cancelling a purchase order requires an admin account.")
+
     po = db.get(PurchaseOrder, po_id)
     if po is None:
         raise HTTPException(status_code=404, detail="Purchase order not found.")
@@ -145,55 +157,89 @@ def receive_purchase_order(
             detail=f"Purchase order must be approved before it can be received (currently {po.status.value}).",
         )
 
-    items_by_product = {item.product_id: item for item in po.items}
-
-    for receipt in payload.items:
-        line = items_by_product.get(receipt.product_id)
-        if line is None:
-            raise HTTPException(
-                status_code=400, detail=f"Product {receipt.product_id} is not on this purchase order."
-            )
-        remaining = line.quantity_ordered - line.quantity_received
-        if receipt.quantity > remaining:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Cannot receive {receipt.quantity} of product {receipt.product_id}; "
-                    f"only {remaining} remain on order."
-                ),
-            )
-
-        line.quantity_received += receipt.quantity
-
-        stock_level = (
-            db.query(StockLevel)
-            .filter(StockLevel.product_id == receipt.product_id, StockLevel.warehouse_id == po.warehouse_id)
-            .first()
-        )
-        if stock_level is None:
-            stock_level = StockLevel(product_id=receipt.product_id, warehouse_id=po.warehouse_id, quantity_on_hand=0)
-            db.add(stock_level)
-        stock_level.quantity_on_hand += receipt.quantity
-
-        db.add(
-            StockMovement(
-                product_id=receipt.product_id,
-                warehouse_id=po.warehouse_id,
-                movement_type=MovementType.receipt,
-                quantity_delta=receipt.quantity,
-                reference_type="purchase_order",
-                reference_id=po.id,
-                created_by=current_user.id,
-            )
+    valid_product_ids = {item.product_id for item in po.items}
+    unknown_product_ids = {receipt.product_id for receipt in payload.items} - valid_product_ids
+    if unknown_product_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Product(s) {sorted(unknown_product_ids)} are not on this purchase order.",
         )
 
-    db.flush()
-    po.status = (
-        PurchaseOrderStatus.received
-        if all(item.quantity_received >= item.quantity_ordered for item in po.items)
-        else PurchaseOrderStatus.partially_received
-    )
+    # Lock every distinct product this receipt touches (all in po's one
+    # warehouse) for the whole operation, not just each individual
+    # increment — the write only actually lands at db.commit() below, so
+    # the lock has to be held until then or a concurrent request could
+    # still interleave (see stock_ops.py). Sorted by product_id so two
+    # concurrent receipts touching overlapping product sets always acquire
+    # their locks in the same order and can't deadlock against each other.
+    product_ids = sorted({receipt.product_id for receipt in payload.items})
+    with ExitStack() as locks:
+        for product_id in product_ids:
+            locks.enter_context(stock_level_lock(product_id, po.warehouse_id))
 
-    db.commit()
-    db.refresh(po)
-    return po
+        for receipt in payload.items:
+            # Re-query the line under lock (with_for_update, real on
+            # Postgres) rather than trusting po.items as read before we
+            # acquired the lock above — quantity_received is exactly the
+            # same kind of read-then-write hazard as stock_levels.
+            # populate_existing() is required, not optional: po.items above
+            # already loaded this row into the session's identity map, so
+            # without it SQLAlchemy would hand back that cached (stale)
+            # Python object instead of the fresh values this query just
+            # read from the DB — silently defeating the whole point of
+            # re-querying. (Confirmed by test: without populate_existing(),
+            # 20 concurrent 1-unit receipts landed only 3.)
+            # .first() rather than .one(): duplicate-product line items on
+            # one PO aren't rejected yet (Phase 9, Change 9.10), so this
+            # stays crash-safe against that pre-existing gap in the
+            # meantime, matching the old dict-based lookup's behavior of
+            # silently preferring one match.
+            line = (
+                db.query(PurchaseOrderItem)
+                .filter(
+                    PurchaseOrderItem.purchase_order_id == po.id,
+                    PurchaseOrderItem.product_id == receipt.product_id,
+                )
+                .populate_existing()
+                .with_for_update()
+                .first()
+            )
+            remaining = line.quantity_ordered - line.quantity_received
+            if receipt.quantity > remaining:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Cannot receive {receipt.quantity} of product {receipt.product_id}; "
+                        f"only {remaining} remain on order."
+                    ),
+                )
+
+            line.quantity_received += receipt.quantity
+
+            # See stock_ops.get_or_create_stock_level for why this isn't
+            # just a plain query + "create if missing".
+            stock_level = get_or_create_stock_level(db, receipt.product_id, po.warehouse_id)
+            stock_level.quantity_on_hand += receipt.quantity
+
+            db.add(
+                StockMovement(
+                    product_id=receipt.product_id,
+                    warehouse_id=po.warehouse_id,
+                    movement_type=MovementType.receipt,
+                    quantity_delta=receipt.quantity,
+                    reference_type="purchase_order",
+                    reference_id=po.id,
+                    created_by=current_user.id,
+                )
+            )
+
+        db.flush()
+        po.status = (
+            PurchaseOrderStatus.received
+            if all(item.quantity_received >= item.quantity_ordered for item in po.items)
+            else PurchaseOrderStatus.partially_received
+        )
+
+        db.commit()
+        db.refresh(po)
+        return po

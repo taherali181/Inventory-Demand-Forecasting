@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Product, Supplier, User
-from routers.auth import get_current_user
+from routers.auth import require_admin
 from schemas import ProductCreate, ProductRead, ProductUpdate
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -27,7 +27,7 @@ def list_products(include_inactive: bool = False, db: Session = Depends(get_db))
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(
-    payload: ProductCreate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)
+    payload: ProductCreate, db: Session = Depends(get_db), _current_user: User = Depends(require_admin)
 ):
     if db.query(Product).filter(Product.sku_code == payload.sku_code).first():
         raise HTTPException(status_code=400, detail="A product with this SKU code already exists.")
@@ -53,7 +53,7 @@ def update_product(
     product_id: int,
     payload: ProductUpdate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_admin),
 ):
     product = db.get(Product, product_id)
     if product is None:
@@ -72,7 +72,7 @@ def update_product(
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_product(
-    product_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)
+    product_id: int, db: Session = Depends(get_db), _current_user: User = Depends(require_admin)
 ):
     product = db.get(Product, product_id)
     if product is None:

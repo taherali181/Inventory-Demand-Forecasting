@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, Warehouse
-from routers.auth import get_current_user
+from routers.auth import require_admin
 from schemas import WarehouseCreate, WarehouseRead, WarehouseUpdate
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
@@ -22,7 +22,7 @@ def list_warehouses(include_inactive: bool = False, db: Session = Depends(get_db
 
 @router.post("", response_model=WarehouseRead, status_code=status.HTTP_201_CREATED)
 def create_warehouse(
-    payload: WarehouseCreate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)
+    payload: WarehouseCreate, db: Session = Depends(get_db), _current_user: User = Depends(require_admin)
 ):
     if db.query(Warehouse).filter(Warehouse.code == payload.code).first():
         raise HTTPException(status_code=400, detail="A warehouse with this code already exists.")
@@ -46,7 +46,7 @@ def update_warehouse(
     warehouse_id: int,
     payload: WarehouseUpdate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_admin),
 ):
     warehouse = db.get(Warehouse, warehouse_id)
     if warehouse is None:
@@ -60,7 +60,7 @@ def update_warehouse(
 
 @router.delete("/{warehouse_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_warehouse(
-    warehouse_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)
+    warehouse_id: int, db: Session = Depends(get_db), _current_user: User = Depends(require_admin)
 ):
     """Soft delete: sets is_active=False rather than removing the row, since
     stock_levels/sales_records/purchase_orders reference it by id."""

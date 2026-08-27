@@ -1,14 +1,23 @@
 # tests/test_purchasing.py
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi.testclient import TestClient
 
 from main import app
+from conftest import promote_to_admin
 
 client = TestClient(app)
 
 
-def _auth_headers(email="purchasing@example.com", password="testpass123"):
+def _auth_headers(db_session, email="purchasing@example.com", password="testpass123"):
+    """Registers, logs in, and promotes to admin — every test here creates
+    suppliers/warehouses/products via _setup_supplier_warehouse_product,
+    which require_admin now gates (see Phase 7 RBAC). PO creation/receiving/
+    alert recompute are all staff-level too, so an admin token still works
+    for those (admin is a superset of staff, not a separate track)."""
     client.post("/auth/register", json={"email": email, "password": password})
     token = client.post("/auth/login", json={"email": email, "password": password}).json()["access_token"]
+    promote_to_admin(db_session, email)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -24,7 +33,7 @@ def _setup_supplier_warehouse_product(headers, reorder_point=10):
 
 
 def test_low_stock_alert_opens_and_resolves(db_session):
-    headers = _auth_headers("alerts@example.com", "testpass123")
+    headers = _auth_headers(db_session, "alerts@example.com", "testpass123")
     _, warehouse, product = _setup_supplier_warehouse_product(headers, reorder_point=10)
 
     # No stock yet -> below reorder point -> recompute should open an alert.
@@ -55,7 +64,7 @@ def test_low_stock_alert_opens_for_untouched_zero_stock_product(db_session):
     """Regression test: a product that's never had a stock adjustment has
     zero stock everywhere, which should still trip its reorder_point — not
     be silently skipped just because no stock_levels row exists yet."""
-    headers = _auth_headers("zero-stock@example.com", "testpass123")
+    headers = _auth_headers(db_session, "zero-stock@example.com", "testpass123")
     _, warehouse, product = _setup_supplier_warehouse_product(headers, reorder_point=15)
 
     alerts = client.post("/alerts/recompute", headers=headers).json()
@@ -71,7 +80,7 @@ def test_alerts_recompute_requires_auth(db_session):
 
 
 def test_purchase_order_full_lifecycle(db_session):
-    headers = _auth_headers("po-lifecycle@example.com", "testpass123")
+    headers = _auth_headers(db_session, "po-lifecycle@example.com", "testpass123")
     supplier, warehouse, product = _setup_supplier_warehouse_product(headers)
 
     create_response = client.post(
@@ -140,8 +149,51 @@ def test_purchase_order_full_lifecycle(db_session):
     assert stock[0]["quantity_on_hand"] == 30
 
 
+def test_concurrent_partial_receipts_all_land(db_session):
+    """Regression test for the stock_level_lock + with_for_update() added in
+    Phase 7 (Change 7.7): fires many concurrent 1-unit partial receipts
+    against one PO line and asserts both quantity_received and the
+    resulting stock_levels.quantity_on_hand reflect every one of them —
+    mirrors test_inventory.py::test_concurrent_stock_adjustments_all_land,
+    which caught a real lost-update bug this same fix addresses."""
+    headers = _auth_headers(db_session, "po-concurrency@example.com", "testpass123")
+    supplier, warehouse, product = _setup_supplier_warehouse_product(headers)
+
+    receipt_count = 20
+    po = client.post(
+        "/purchase-orders",
+        json={
+            "supplier_id": supplier["id"],
+            "warehouse_id": warehouse["id"],
+            "items": [{"product_id": product["id"], "quantity_ordered": receipt_count}],
+        },
+        headers=headers,
+    ).json()
+    for target in ("submitted", "approved"):
+        client.put(f"/purchase-orders/{po['id']}/status", json={"status": target}, headers=headers)
+
+    def receive_one():
+        return client.post(
+            f"/purchase-orders/{po['id']}/receive",
+            json={"items": [{"product_id": product["id"], "quantity": 1}]},
+            headers=headers,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        responses = list(executor.map(lambda _: receive_one(), range(receipt_count)))
+
+    assert all(r.status_code == 200 for r in responses)
+
+    final_po = client.get(f"/purchase-orders/{po['id']}").json()
+    assert final_po["items"][0]["quantity_received"] == receipt_count
+    assert final_po["status"] == "received"
+
+    stock = client.get(f"/stock?product_id={product['id']}&warehouse_id={warehouse['id']}").json()
+    assert stock[0]["quantity_on_hand"] == receipt_count
+
+
 def test_purchase_order_rejects_unknown_supplier(db_session):
-    headers = _auth_headers("po-bad-supplier@example.com", "testpass123")
+    headers = _auth_headers(db_session, "po-bad-supplier@example.com", "testpass123")
     _, warehouse, product = _setup_supplier_warehouse_product(headers)
 
     response = client.post(
