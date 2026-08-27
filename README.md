@@ -22,8 +22,10 @@ log` and `CLAUDE.md` for how it got here and what's still in progress.
 - **Legacy CSV import** — the original `date, store, item, sales` CSV format still works: uploading one
   auto-creates the corresponding warehouses/products and feeds both EDA (charts + summary stats) and the
   sales history forecasting trains on.
-- **Auth** — JWT-based; reads are open, writes require an account. Optional in the sense that nothing
-  breaks if you never log in on a single-user setup — you just can't create/edit/delete records.
+- **Auth** — JWT access tokens (15 min) + refresh tokens (30 days); reads are open, writes require an
+  account, and creating/editing/deactivating master data (products/warehouses/suppliers) or cancelling a
+  purchase order additionally requires an admin account (day-to-day operations — stock adjustments, PO
+  create/receive, forecasts — work for any logged-in account). Login/register are rate-limited.
 
 ## Project layout
 
@@ -48,6 +50,7 @@ frontend/           Create React App + react-router-dom
 cd backend
 pip install -r ../requirements.txt
 cp .env.example .env   # optional — sane defaults work without it
+alembic upgrade head   # creates/updates the SQLite schema
 uvicorn main:app --reload
 ```
 
@@ -85,7 +88,7 @@ All endpoints are documented interactively at `/docs`. Broad strokes:
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` |
 | Upload/EDA | `POST /upload`, `GET /eda` |
 | Inventory | `GET/POST/PUT/DELETE /warehouses`, `/suppliers`, `/products`; `GET /stock`, `POST /stock/adjust` |
 | Alerts | `GET /alerts`, `POST /alerts/recompute` |

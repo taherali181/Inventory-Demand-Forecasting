@@ -1,12 +1,29 @@
 # tests/test_purchasing.py
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from main import app
 from conftest import promote_to_admin
 
 client = TestClient(app)
+
+
+@contextmanager
+def _count_queries_on_engine(engine):
+    count = 0
+
+    def _increment(*_args, **_kwargs):
+        nonlocal count
+        count += 1
+
+    event.listen(engine, "before_cursor_execute", _increment)
+    try:
+        yield lambda: count
+    finally:
+        event.remove(engine, "before_cursor_execute", _increment)
 
 
 def _auth_headers(db_session, email="purchasing@example.com", password="testpass123"):
@@ -56,7 +73,7 @@ def test_low_stock_alert_opens_and_resolves(db_session):
     recompute_again = client.post("/alerts/recompute", headers=headers).json()
     assert not any(a["product_id"] == product["id"] and a["status"] == "open" for a in recompute_again)
 
-    resolved = client.get("/alerts?status_filter=resolved").json()
+    resolved = client.get("/alerts?status_filter=resolved").json()["items"]
     assert any(a["product_id"] == product["id"] for a in resolved)
 
 
@@ -77,6 +94,56 @@ def test_low_stock_alert_opens_for_untouched_zero_stock_product(db_session):
 def test_alerts_recompute_requires_auth(db_session):
     response = client.post("/alerts/recompute")
     assert response.status_code == 401
+
+
+def test_recompute_alerts_query_count_does_not_scale_with_product_count(db_session):
+    """Regression test for the N+1 fixed in Phase 8 (Change 8.6):
+    recompute_alerts used to run one Alert existence *SELECT* per product x
+    warehouse pair, on top of any INSERT/UPDATE actually needed. INSERTs/
+    UPDATEs for alerts that genuinely change state are normal ORM behavior
+    and DO legitimately scale with how many alerts change (that's not the
+    bug) — so this test uses a "nothing changes" scenario (every product
+    well-stocked, no alert ever opens) to isolate just the fixed part: with
+    no per-pair reads OR writes needed, query count should stay flat
+    (a handful of fixed bulk queries) regardless of product count, not grow
+    with it. The product x warehouse cross-product Python-level iteration
+    itself is intentionally unchanged (see the router's docstring)."""
+    headers = _auth_headers(db_session, "alerts-n1@example.com", "testpass123")
+    warehouse = client.post("/warehouses", json={"name": "W", "code": "N1-W"}, headers=headers).json()
+
+    probe_db = db_session()
+    engine = probe_db.get_bind()
+    probe_db.close()
+
+    def _make_well_stocked_products(n, prefix):
+        for i in range(n):
+            product = client.post(
+                "/products",
+                json={"sku_code": f"{prefix}-{i}", "name": f"Widget {i}", "reorder_point": 0},
+                headers=headers,
+            ).json()
+            client.post(
+                "/stock/adjust",
+                json={"product_id": product["id"], "warehouse_id": warehouse["id"], "quantity_delta": 100},
+                headers=headers,
+            )
+
+    _make_well_stocked_products(3, "N1A")
+    with _count_queries_on_engine(engine) as small_count:
+        recompute_response = client.post("/alerts/recompute", headers=headers)
+    assert recompute_response.json() == []  # nothing below its reorder point
+    small_queries = small_count()
+
+    _make_well_stocked_products(30, "N1B")
+    with _count_queries_on_engine(engine) as large_count:
+        recompute_response = client.post("/alerts/recompute", headers=headers)
+    assert recompute_response.json() == []
+    large_queries = large_count()
+
+    # ~11x the products (33 vs 3), with nothing to insert/update either
+    # time, should mean roughly the SAME small query count both times — the
+    # old per-pair existence check would instead have scaled with N.
+    assert large_queries <= small_queries + 2
 
 
 def test_purchase_order_full_lifecycle(db_session):
@@ -146,7 +213,7 @@ def test_purchase_order_full_lifecycle(db_session):
     assert final_receive.json()["status"] == "received"
 
     stock = client.get(f"/stock?product_id={product['id']}&warehouse_id={warehouse['id']}").json()
-    assert stock[0]["quantity_on_hand"] == 30
+    assert stock["items"][0]["quantity_on_hand"] == 30
 
 
 def test_concurrent_partial_receipts_all_land(db_session):
@@ -189,7 +256,7 @@ def test_concurrent_partial_receipts_all_land(db_session):
     assert final_po["status"] == "received"
 
     stock = client.get(f"/stock?product_id={product['id']}&warehouse_id={warehouse['id']}").json()
-    assert stock[0]["quantity_on_hand"] == receipt_count
+    assert stock["items"][0]["quantity_on_hand"] == receipt_count
 
 
 def test_purchase_order_rejects_unknown_supplier(db_session):

@@ -10,9 +10,9 @@ function StockAdjustModal({ product, onClose, onAdjusted }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    listWarehouses().then((data) => {
-      setWarehouses(data);
-      if (data.length > 0) setWarehouseId(String(data[0].id));
+    listWarehouses(false, { limit: 200 }).then((data) => {
+      setWarehouses(data.items);
+      if (data.items.length > 0) setWarehouseId(String(data.items[0].id));
     });
   }, []);
 

@@ -1,22 +1,24 @@
 # routers/stock.py
-from typing import List, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Product, StockLevel, StockMovement, User, Warehouse
 from routers.auth import get_current_user
-from schemas import StockAdjustment, StockLevelRead
+from schemas import PaginatedResponse, StockAdjustment, StockLevelRead
 from stock_ops import get_or_create_stock_level, stock_level_lock
 
 router = APIRouter(prefix="/stock", tags=["stock"])
 
 
-@router.get("", response_model=List[StockLevelRead])
+@router.get("", response_model=PaginatedResponse[StockLevelRead])
 def list_stock_levels(
     product_id: Optional[int] = None,
     warehouse_id: Optional[int] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
 ):
     query = db.query(StockLevel)
@@ -24,7 +26,9 @@ def list_stock_levels(
         query = query.filter(StockLevel.product_id == product_id)
     if warehouse_id is not None:
         query = query.filter(StockLevel.warehouse_id == warehouse_id)
-    return query.all()
+    total = query.count()
+    items = query.offset(skip).limit(limit).all()
+    return PaginatedResponse(items=items, total=total)
 
 
 @router.post("/adjust", response_model=StockLevelRead)

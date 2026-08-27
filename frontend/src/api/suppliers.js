@@ -1,7 +1,10 @@
 import client from './client';
 
-export function listSuppliers(includeInactive = false) {
-  return client.get('/suppliers', { params: { include_inactive: includeInactive } }).then((res) => res.data);
+// Returns { items, total } — see components/PaginatedList.js.
+export function listSuppliers(includeInactive = false, { skip = 0, limit = 50 } = {}) {
+  return client
+    .get('/suppliers', { params: { include_inactive: includeInactive, skip, limit } })
+    .then((res) => res.data);
 }
 
 export function createSupplier(payload) {

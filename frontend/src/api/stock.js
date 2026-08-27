@@ -1,8 +1,9 @@
 import client from './client';
 
-export function listStock({ productId, warehouseId } = {}) {
+// Returns { items, total } — see components/PaginatedList.js.
+export function listStock({ productId, warehouseId, skip = 0, limit = 50 } = {}) {
   return client
-    .get('/stock', { params: { product_id: productId, warehouse_id: warehouseId } })
+    .get('/stock', { params: { product_id: productId, warehouse_id: warehouseId, skip, limit } })
     .then((res) => res.data);
 }
 

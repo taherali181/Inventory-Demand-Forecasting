@@ -9,9 +9,11 @@ app (warehouses, suppliers, products, stock levels + audit trail, low-stock aler
 receiving) with real per-product/warehouse demand forecasting, a SQLite/SQLAlchemy database, JWT auth, a
 React frontend actually wired to the backend, CI, and Docker. `IMPROVEMENT_PLAN.md` (repo root) is a
 verified-against-the-code Phase 7–11 roadmap (security hardening → performance → architecture → UX →
-new features) picking up from there; Phase 7 (security hardening) is underway — check `git log` for what's
-actually landed. `README.md` is current and is the right starting point for a features/endpoints overview;
-this file covers the parts that need multiple files read together to understand.
+new features) picking up from there; Phase 7 (security hardening) and Phase 8 (performance & scalability —
+Alembic, background tasks for upload/EDA/forecast, N+1 fixes, pagination, FK indexes) are done — check
+`git log` for what's actually landed. `README.md` is current and is the right starting point for a
+features/endpoints overview; this file covers the parts that need multiple files read together to
+understand.
 
 Everything below was verified by actually running it each phase (pytest, `npm run build`/`test`, and live
 `uvicorn`/`npm start` smoke tests against real HTTP requests) rather than only reviewed by eye — see commit
@@ -27,6 +29,7 @@ run it, don't just read it.
 cd backend
 pip install -r ../requirements.txt
 cp .env.example .env   # optional — see config.py for defaults
+alembic upgrade head    # create/update the schema — see "Migrations" below
 
 # Run the API (serves on http://127.0.0.1:8000, interactive docs at /docs)
 uvicorn main:app --reload
@@ -38,6 +41,23 @@ pytest
 pytest tests/test_forecasting.py
 pytest tests/test_forecast_api.py::test_forecast_create_and_reread_without_retraining
 ```
+
+#### Migrations (Alembic)
+
+Schema changes go through Alembic, not `Base.metadata.create_all()` (which only creates *missing* tables,
+never alters existing ones). After changing `models.py`:
+
+```bash
+cd backend
+alembic revision --autogenerate -m "describe the change"
+alembic upgrade head    # apply it locally
+alembic check            # CI runs this — fails if the models and the latest migration have drifted
+```
+
+`env.py` reads the DB URL from `config.settings.database_url` and sets `render_as_batch=True` (required for
+SQLite `ALTER TABLE` support). Tests don't use Alembic — `tests/conftest.py`'s `db_session` fixture still
+calls `create_all()` against a fresh per-test SQLite file for speed; that's a deliberate, documented
+divergence from the real app's migration path, not an oversight.
 
 `backend/pytest.ini` sets `pythonpath = .`, so tests always run as if `backend/` is on `sys.path` —
 matches the rest of the codebase, which uses flat imports (`from data_processing import ...`) everywhere,
@@ -74,22 +94,30 @@ at its explicit CJS build — don't remove that override without re-verifying `n
 
 ### Backend (`backend/`)
 
-- `main.py` — thin FastAPI app factory: adds CORS middleware, calls `Base.metadata.create_all()` (see
-  below), includes every router, mounts `chatbot.py` as a sub-app at `/chatbot`.
+- `main.py` — thin FastAPI app factory: adds CORS middleware, rate-limit state (`rate_limit.py`'s
+  `limiter`), includes every router. Does **not** create tables — schema is entirely Alembic's job now (see
+  "Migrations" above); a fresh checkout with no DB file needs `alembic upgrade head` before `uvicorn` will
+  serve anything but 500s.
 - `routers/{auth,upload,forecast,eda,warehouses,suppliers,products,stock,alerts,purchase_orders}.py` — one
   file per resource. Errors are raised as `HTTPException`, not returned as 200-status error dicts. Two
   auth tiers on writes: `require_admin` gates genuinely administrative writes (create/update/deactivate on
   products/warehouses/suppliers, cancelling a PO — see `routers/auth.py`'s docstring for the exact line),
   plain `get_current_user` gates routine staff writes (stock adjustments, PO create/receive, forecasts).
   Reads, upload, and forecast creation stay open to anyone (upload/forecast use `get_current_user_optional`
-  just to attribute the action when a token is present).
+  just to attribute the action when a token is present). Every `list_*` endpoint returns
+  `{items: [...], total: N}` (`schemas.PaginatedResponse[T]`), not a bare array — `skip`/`limit` query
+  params, default `limit=50`/max `200`. `purchase_orders.py`'s list endpoint pages over PO **ids** first,
+  then `joinedload()`s just that page's `items` — combining `.offset().limit()` directly with a
+  one-to-many `joinedload` silently limits joined rows instead of distinct parent entities, a real
+  SQLAlchemy footgun, not a hypothetical one.
 - `database.py` / `models.py` / `schemas.py` — SQLAlchemy engine/session (`DATABASE_URL` from
   `config.settings`, defaults to SQLite under `backend/data/`), the full inventory ORM schema (users,
   refresh_tokens, warehouses, suppliers, products, stock_levels, stock_movements, purchase_orders + items,
   sales_records, forecast_runs + predictions, upload_history, alerts), and the matching Pydantic schemas.
-  **No Alembic** — `Base.metadata.create_all()` in `main.py` creates missing tables on every startup; this
-  doesn't handle schema changes to *existing* tables, so introduce Alembic before that's needed (tracked as
-  `IMPROVEMENT_PLAN.md` Change 8.1).
+  FK columns (`StockLevel`/`StockMovement`/`PurchaseOrder`/`PurchaseOrderItem`/`Alert`) are indexed —
+  added in the Change 8.8 migration once these tables were getting queried by FK in hot paths (alerts
+  recompute, stock lookups). Schema changes go through Alembic (`backend/alembic/`) — see "Migrations"
+  above; there is no `Base.metadata.create_all()` call left in the app itself.
 - `config.py` — pydantic-settings `Settings` (`.env`-driven: `DATABASE_URL`, `JWT_SECRET_KEY`,
   `environment`), plus the `PROCESSED_DATA_PATH`/`DATA_DIR` path constants used by the CSV pipeline below.
   `environment="production"` + a still-default `JWT_SECRET_KEY` makes `auth.py` refuse to start
@@ -123,28 +151,50 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   (DB-driven forecasting path). Not persisted anywhere — recomputed on demand.
 - `ingest.py` — bridges the legacy `store`/`item` CSV columns into real `Warehouse`/`Product` rows
   (auto-created, `source='legacy_import'`) and upserts into `sales_records`. Idempotent by
-  `(date, product, warehouse)` — re-uploading the same file persists 0 new rows.
+  `(date, product, warehouse)` — re-uploading the same file persists 0 new rows. The existence check is a
+  single batched query (`SalesRecord.date.in_(...)` against the incoming keys) before the insert loop, not
+  a per-row `SELECT` — that was a real N+1 bug, fixed in Phase 8; see `tests/test_ingest.py` for the
+  regression test (isolates the fix by re-uploading identical data and asserting zero extra queries, since
+  genuinely new rows legitimately need one INSERT each — that part isn't the bug).
 - `data_processing.py` — validates an uploaded CSV (`date, store, item, sales` columns required), engineers
   features via `features.py`, and writes the result to `backend/data/processed_data_temp.csv` (gitignored).
   **Only `eda.py` still reads this CSV** — forecasting was rewritten in Phase 5 to query `sales_records` in
-  the DB directly instead, scoped to a specific `(product_id, warehouse_id)`. `/upload` writes both: the DB
-  (source of truth for inventory and for forecasting) and this CSV snapshot (source of truth for EDA only).
-- `forecasting.py` — `create_forecast_run(db, product_id, warehouse_id, model_type, forecast_horizon)`
-  trains on all `sales_records` history for that pair and predicts `forecast_horizon` genuine future
-  calendar days (not a backtest — that was the pre-Phase-5 bug: predictions on a historical held-out split,
-  mislabeled as a forecast). Three `model_type`s: `random_forest`, `exponential_smoothing` (statsmodels),
-  `moving_average`. Raises `InsufficientHistoryError` under `MIN_HISTORY_ROWS` (10). Models persist via
-  `joblib` to `backend/data/models/{run_id}.joblib` (gitignored; `moving_average` has no model object, so
-  none is written); rereading a run via `GET /forecast/{id}` must not touch that file's mtime — if it does,
-  something is retraining on read, which defeats the point of persisting the model.
-- `eda.py` — renders matplotlib/seaborn charts server-side to base64 PNGs. Must keep
-  `matplotlib.use("Agg")` at import time and never call `plt.show()` — this code runs inside a request
-  handler, and an interactive backend will hang/error under `uvicorn`.
-- `chatbot.py` — a separate, minimal `FastAPI()` app mounted into `main.py`. Purely rule-based (a 3-entry
-  dict keyed on exact lowercase string match), no LLM involved.
-- `tests/conftest.py` — the `db_session` fixture overrides `get_db` with an isolated per-test SQLite file;
-  any test that exercises the app through `TestClient` and touches the DB (directly or via `/upload`) needs
-  it, or it'll hit the real `backend/data/inventory.db`.
+  the DB directly instead, scoped to a specific `(product_id, warehouse_id)`.
+- `upload_processing.py` — `process_upload_in_background(upload_history_id)`, scheduled via FastAPI
+  `BackgroundTasks` from `routers/upload.py` after the request returns 202. Does the actual CSV persistence
+  (`ingest.persist_sales_records`) and EDA chart generation, then writes `UploadHistory.status`
+  (`processing` → `completed`/`failed`) and `eda_results`/`processed_file_path`. `routers/eda.py` reads the
+  cached `eda_results` for a given `upload_id` — no more shared `app.state.data_path` global (the old
+  single-tenant stopgap that a second concurrent upload would silently clobber).
+- `forecasting.py` — `create_pending_forecast_run()` creates the `ForecastRun` row (`status="pending"`) and
+  returns immediately (fast-failing on insufficient history via a count query, before scheduling anything);
+  `run_forecast_training_in_background(run_id)` is scheduled via `BackgroundTasks` from `routers/forecast.py`
+  and does the actual training. Trains on all `sales_records` history for the pair and predicts
+  `forecast_horizon` genuine future calendar days (not a backtest — that was the pre-Phase-5 bug:
+  predictions on a historical held-out split, mislabeled as a forecast). Three `model_type`s:
+  `random_forest`, `exponential_smoothing` (statsmodels), `moving_average`. Raises
+  `InsufficientHistoryError` under `MIN_HISTORY_ROWS` (10). Models persist via `joblib` to
+  `backend/data/models/{run_id}.joblib` (gitignored; `moving_average` has no model object, so none is
+  written); rereading a run via `GET /forecast/{id}` must not touch that file's mtime — if it does,
+  something is retraining on read, which defeats the point of persisting the model. **Background-task
+  callbacks (here and in `upload_processing.py`) must open their own DB session via `import database` +
+  `database.SessionLocal()`** (module-qualified, not `from database import SessionLocal`) — a frozen
+  import captures the production engine at import time, invisible to `tests/conftest.py`'s per-test
+  session override, and the request's own session may already be closed by the time a background task
+  actually runs.
+- `eda.py` — renders matplotlib/seaborn charts server-side to base64 PNGs, called from
+  `upload_processing.py`'s background task rather than inline in the request handler. Must keep
+  `matplotlib.use("Agg")` at import time and never call `plt.show()` — an interactive backend will
+  hang/error when it's not running on a display thread.
+- `chatbot.py` — a separate, minimal `FastAPI()` app mounted into `main.py` at `/chatbot`. Purely
+  rule-based (a 3-entry dict keyed on exact lowercase string match), no LLM involved, deliberately not
+  covered by `rate_limit.py`'s limiter (see `main.py`'s comment) — slated for removal, not hardening
+  (`IMPROVEMENT_PLAN.md` Change 9.2).
+- `tests/conftest.py` — the `db_session` fixture overrides `get_db` with an isolated per-test SQLite file
+  **and** monkeypatches `database.SessionLocal` to the same test session factory, so background-task code
+  that opens its own session (see above) also lands in the test DB. Also has a `_reset_rate_limits`
+  autouse fixture (slowapi's limiter state is in-process and doesn't reset itself between tests) and a
+  `promote_to_admin(session_factory, email)` helper for tests that need an admin-role user.
 
 ### Frontend (`frontend/`)
 
@@ -165,11 +215,19 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   automock doesn't correctly shape axios's callable-function export).
 - `src/pages/*.js` — `DashboardPage`, `UploadPage`, `ForecastPage`, `EdaPage`, `WarehousesPage`,
   `SuppliersPage`, `ProductsPage`, `StockPage`, `AlertsPage`, `PurchaseOrdersPage` +
-  `PurchaseOrderDetailPage` (`/purchase-orders/:id`), `LoginPage`, `RegisterPage`.
+  `PurchaseOrderDetailPage` (`/purchase-orders/:id`), `LoginPage`, `RegisterPage`. The 6 list pages
+  (`Warehouses`/`Suppliers`/`Products`/`Stock`/`Alerts`/`PurchaseOrders`) all use the shared
+  `usePaginatedList` hook (`src/hooks/usePaginatedList.js`) + `LoadMoreButton` component to consume the
+  backend's `{items, total}` paginated responses — `reload()` for "refetch from scratch" (after a
+  create/update), `loadMore()` to append the next page.
 - `src/components/` — `Navbar`, `FileUploadForm`, `ForecastChart` (chart.js; predictions are
   `{forecast_date, predicted_sales}` pairs, not bare numbers), `EdaCharts` (renders the backend's base64
   PNGs via `<img>`), `DataTable` (generic — pass `columns`/`rows`, used by every CRUD page),
-  `StockAdjustModal`, `POForm`.
+  `LoadMoreButton` (the "Showing X of Y" + optional "Load more" control paired with `usePaginatedList`),
+  `StockAdjustModal`, `POForm`. Dropdown data (e.g. the warehouse `<select>` in `StockAdjustModal`/`POForm`)
+  fetches the paginated list APIs with `{ limit: 200 }` and unwraps `.items` directly — a one-off,
+  non-paginated read, not wired through `usePaginatedList`, since these are populating a `<select>`, not
+  rendering the page's primary list.
 - Pages that fetch on mount need their API module mocked in tests (`jest.mock('../api/products')` etc.) —
   see `src/pages/ProductsPage.test.js` for the pattern. Without it, the test hits the real
   `REACT_APP_API_BASE_URL` and hangs/fails in CI, where no backend is running.

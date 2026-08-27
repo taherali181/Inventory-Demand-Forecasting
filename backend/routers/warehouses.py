@@ -1,23 +1,28 @@
 # routers/warehouses.py
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, Warehouse
 from routers.auth import require_admin
-from schemas import WarehouseCreate, WarehouseRead, WarehouseUpdate
+from schemas import PaginatedResponse, WarehouseCreate, WarehouseRead, WarehouseUpdate
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 
 
-@router.get("", response_model=List[WarehouseRead])
-def list_warehouses(include_inactive: bool = False, db: Session = Depends(get_db)):
+@router.get("", response_model=PaginatedResponse[WarehouseRead])
+def list_warehouses(
+    include_inactive: bool = False,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+):
     query = db.query(Warehouse)
     if not include_inactive:
         query = query.filter(Warehouse.is_active.is_(True))
-    return query.order_by(Warehouse.name).all()
+    total = query.count()
+    items = query.order_by(Warehouse.name).offset(skip).limit(limit).all()
+    return PaginatedResponse(items=items, total=total)
 
 
 @router.post("", response_model=WarehouseRead, status_code=status.HTTP_201_CREATED)

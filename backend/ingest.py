@@ -44,36 +44,42 @@ def persist_sales_records(db: Session, data: pd.DataFrame) -> int:
     Existing (date, product, warehouse) rows are skipped rather than
     overwritten, so re-uploading the same file is a safe no-op. Returns the
     number of new rows written.
+
+    Runs one query per *distinct* store/item value (not per row, via the
+    caches below) plus one batched existence check for the whole upload —
+    not the one-existence-query-per-CSV-row a naive per-row implementation
+    would do, which turns a 50k-row upload into 50k round trips.
     """
-    warehouse_cache: Dict[int, Warehouse] = {}
-    product_cache: Dict[int, Product] = {}
+    if data.empty:
+        return 0
+
+    warehouse_cache: Dict[int, Warehouse] = {
+        store_id: _get_or_create_warehouse(db, store_id) for store_id in data["store"].astype(int).unique()
+    }
+    product_cache: Dict[int, Product] = {
+        item_id: _get_or_create_product(db, item_id) for item_id in data["item"].astype(int).unique()
+    }
+
+    record_dates = pd.to_datetime(data[["year", "month", "day"]]).dt.date
+
+    # One batched existence check for the whole upload: every (date,
+    # product_id, warehouse_id) already in sales_records whose date falls
+    # within this upload's date range (SalesRecord.date is indexed, so this
+    # stays cheap even against a large table).
+    existing_keys = {
+        (row.date, row.product_id, row.warehouse_id)
+        for row in db.query(SalesRecord.date, SalesRecord.product_id, SalesRecord.warehouse_id)
+        .filter(SalesRecord.date.in_(record_dates.unique()))
+        .all()
+    }
+
     written = 0
+    for row, record_date in zip(data.itertuples(index=False), record_dates):
+        warehouse = warehouse_cache[int(row.store)]
+        product = product_cache[int(row.item)]
 
-    for row in data.itertuples(index=False):
-        store_id, item_id = int(row.store), int(row.item)
-
-        warehouse = warehouse_cache.get(store_id)
-        if warehouse is None:
-            warehouse = _get_or_create_warehouse(db, store_id)
-            warehouse_cache[store_id] = warehouse
-
-        product = product_cache.get(item_id)
-        if product is None:
-            product = _get_or_create_product(db, item_id)
-            product_cache[item_id] = product
-
-        record_date = pd.Timestamp(year=int(row.year), month=int(row.month), day=int(row.day)).date()
-
-        exists = (
-            db.query(SalesRecord.id)
-            .filter(
-                SalesRecord.date == record_date,
-                SalesRecord.product_id == product.id,
-                SalesRecord.warehouse_id == warehouse.id,
-            )
-            .first()
-        )
-        if exists:
+        key = (record_date, product.id, warehouse.id)
+        if key in existing_keys:
             continue
 
         db.add(
@@ -85,6 +91,7 @@ def persist_sales_records(db: Session, data: pd.DataFrame) -> int:
                 source=SalesRecordSource.legacy_import,
             )
         )
+        existing_keys.add(key)  # guards against duplicate (date, product, warehouse) rows within this same upload
         written += 1
 
     db.commit()

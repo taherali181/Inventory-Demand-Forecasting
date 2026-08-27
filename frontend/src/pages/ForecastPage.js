@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import ForecastChart from '../components/ForecastChart';
-import { createForecast } from '../api/forecast';
+import { createForecast, getForecastRun } from '../api/forecast';
 import { listProducts } from '../api/products';
 import { listWarehouses } from '../api/warehouses';
 
@@ -9,6 +9,12 @@ const MODEL_OPTIONS = [
   { value: 'exponential_smoothing', label: 'Exponential smoothing' },
   { value: 'moving_average', label: 'Moving average' },
 ];
+
+// Training now runs as a backend background task (POST /forecast returns
+// immediately with status "pending"), so the page polls GET /forecast/{id}
+// until it's no longer pending rather than expecting the result inline.
+const POLL_INTERVAL_MS = 1000;
+const POLL_TIMEOUT_MS = 30000;
 
 function ForecastPage() {
   const [products, setProducts] = useState([]);
@@ -20,6 +26,12 @@ function ForecastPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState(null);
+  const cancelledRef = useRef(false);
+
+  useEffect(() => () => {
+    cancelledRef.current = true;
+  }, []);
 
   useEffect(() => {
     listProducts().then((data) => {
@@ -32,23 +44,53 @@ function ForecastPage() {
     });
   }, []);
 
+  const pollUntilDone = async (runId) => {
+    const startedAt = Date.now();
+    setStatusMessage('Training model…');
+    while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+      // eslint-disable-next-line no-await-in-loop
+      const run = await getForecastRun(runId);
+      if (cancelledRef.current) return;
+      if (run.status === 'completed') {
+        setResult(run);
+        setStatusMessage(null);
+        return;
+      }
+      if (run.status === 'failed') {
+        setError('Forecast training failed — check the backend logs for this run.');
+        setStatusMessage(null);
+        return;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => {
+        setTimeout(resolve, POLL_INTERVAL_MS);
+      });
+    }
+    if (!cancelledRef.current) {
+      setError('Forecast is taking longer than expected — check back on this page shortly.');
+      setStatusMessage(null);
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError(null);
+    setResult(null);
     setIsLoading(true);
     try {
-      const data = await createForecast({
+      const pendingRun = await createForecast({
         productId: Number(productId),
         warehouseId: Number(warehouseId),
         modelType,
         forecastHorizon: Number(horizon),
       });
-      setResult(data);
+      await pollUntilDone(pendingRun.id);
     } catch (err) {
       setError(err.response?.data?.detail || 'Forecast failed.');
       setResult(null);
+      setStatusMessage(null);
     } finally {
-      setIsLoading(false);
+      if (!cancelledRef.current) setIsLoading(false);
     }
   };
 
@@ -93,6 +135,7 @@ function ForecastPage() {
         </button>
       </form>
 
+      {statusMessage && <p className="hint">{statusMessage}</p>}
       {error && <p className="form-error">{error}</p>}
       {products.length === 0 && <p className="hint">Create a product and warehouse first.</p>}
 

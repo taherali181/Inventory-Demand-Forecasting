@@ -7,19 +7,19 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-import models  # noqa: F401 -- registers all tables on Base.metadata before create_all()
 from chatbot import app as chatbot_app
 from config import CORS_ALLOWED_ORIGINS
-from database import Base, engine
 from rate_limit import limiter
 from routers import alerts, auth, eda, forecast, products, purchase_orders, stock, suppliers, upload, warehouses
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-# Auto-creates tables that don't exist yet; safe to call on every startup.
-# Swap for Alembic migrations once schema changes need to preserve data
-# (tracked for Phase 6 — see the project plan).
-Base.metadata.create_all(bind=engine)
+# Schema is managed by Alembic now (backend/alembic/), not Base.metadata.
+# create_all() here — run `alembic upgrade head` before starting the app
+# (backend-ci.yml and docker-compose.yml both do this; see also
+# backend/tests/conftest.py's db_session fixture, which deliberately keeps
+# using create_all() against an isolated per-test SQLite file for speed —
+# a documented divergence from how the real app initializes its schema).
 
 app = FastAPI(title="Inventory Forecasting API")
 
@@ -39,11 +39,6 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
-
-# Path to the most recently uploaded/processed dataset. Single-tenant stopgap
-# (was a bare global before) — replaced by per-user records in the database
-# once Phase 1 lands.
-app.state.data_path = None
 
 app.include_router(auth.router)
 app.include_router(upload.router)

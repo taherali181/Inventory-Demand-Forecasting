@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import DataTable from '../components/DataTable';
+import LoadMoreButton from '../components/LoadMoreButton';
 import { createSupplier, deactivateSupplier, listSuppliers } from '../api/suppliers';
+import usePaginatedList from '../hooks/usePaginatedList';
 import { useAuth } from '../context/AuthContext';
 
 const baseColumns = [
@@ -14,36 +16,28 @@ const emptyForm = { name: '', contact_name: '', email: '', lead_time_days: 7 };
 
 function SuppliersPage() {
   const { user } = useAuth();
-  const [suppliers, setSuppliers] = useState([]);
   const [form, setForm] = useState(emptyForm);
-  const [error, setError] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const refresh = () => {
-    setIsLoading(true);
-    listSuppliers()
-      .then(setSuppliers)
-      .catch(() => setError('Could not load suppliers.'))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(refresh, []);
+  const [formError, setFormError] = useState(null);
+  const { items, total, isLoading, error, reload, loadMore, hasMore } = usePaginatedList(
+    ({ skip, limit }) => listSuppliers(false, { skip, limit }),
+    []
+  );
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setError(null);
+    setFormError(null);
     try {
       await createSupplier({ ...form, lead_time_days: Number(form.lead_time_days) });
       setForm(emptyForm);
-      refresh();
+      reload();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not create supplier.');
+      setFormError(err.response?.data?.detail || 'Could not create supplier.');
     }
   };
 
   const handleDeactivate = async (id) => {
     await deactivateSupplier(id);
-    refresh();
+    reload();
   };
 
   const columns = user
@@ -97,8 +91,10 @@ function SuppliersPage() {
         <p className="hint">Log in to add or manage suppliers.</p>
       )}
 
+      {formError && <p className="form-error">{formError}</p>}
       {error && <p className="form-error">{error}</p>}
-      {isLoading ? <p>Loading…</p> : <DataTable columns={columns} rows={suppliers} />}
+      {isLoading && items.length === 0 ? <p>Loading…</p> : <DataTable columns={columns} rows={items} />}
+      <LoadMoreButton items={items} total={total} hasMore={hasMore} isLoading={isLoading} onLoadMore={loadMore} />
     </div>
   );
 }

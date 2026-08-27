@@ -19,6 +19,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sqlalchemy.orm import Session
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
+import database
 from config import DATA_DIR
 from features import FEATURE_COLUMNS, engineer_date_features
 from models import ForecastPrediction, ForecastRun, ForecastStatus, SalesRecord
@@ -34,6 +35,22 @@ class InsufficientHistoryError(ValueError):
     pass
 
 
+def _require_sufficient_history(row_count: int) -> None:
+    if row_count < MIN_HISTORY_ROWS:
+        raise InsufficientHistoryError(
+            f"Need at least {MIN_HISTORY_ROWS} historical sales_records rows for this product/warehouse "
+            f"to forecast; found {row_count}."
+        )
+
+
+def _history_row_count(db: Session, product_id: int, warehouse_id: int) -> int:
+    return (
+        db.query(SalesRecord)
+        .filter(SalesRecord.product_id == product_id, SalesRecord.warehouse_id == warehouse_id)
+        .count()
+    )
+
+
 def _load_history(db: Session, product_id: int, warehouse_id: int) -> pd.DataFrame:
     records = (
         db.query(SalesRecord)
@@ -41,11 +58,7 @@ def _load_history(db: Session, product_id: int, warehouse_id: int) -> pd.DataFra
         .order_by(SalesRecord.date)
         .all()
     )
-    if len(records) < MIN_HISTORY_ROWS:
-        raise InsufficientHistoryError(
-            f"Need at least {MIN_HISTORY_ROWS} historical sales_records rows for this product/warehouse "
-            f"to forecast; found {len(records)}."
-        )
+    _require_sufficient_history(len(records))
     df = pd.DataFrame({"date": [r.date for r in records], "sales": [r.sales for r in records]})
     df["date"] = pd.to_datetime(df["date"])
     return df.sort_values("date").reset_index(drop=True)
@@ -112,41 +125,35 @@ def _forecast_exponential_smoothing(history: pd.DataFrame, horizon: int):
     return predictions.tolist(), rmse, mae, final_model
 
 
-def create_forecast_run(
-    db: Session,
-    product_id: int,
-    warehouse_id: int,
-    model_type: str,
-    forecast_horizon: int,
-    created_by: Optional[int] = None,
-) -> ForecastRun:
+def _validate_forecast_params(model_type: str, forecast_horizon: int) -> None:
     if model_type not in VALID_MODEL_TYPES:
         raise ValueError(f"Unknown model_type '{model_type}'; must be one of {sorted(VALID_MODEL_TYPES)}.")
     if forecast_horizon < 1:
         raise ValueError("forecast_horizon must be at least 1.")
 
-    run = ForecastRun(
-        product_id=product_id,
-        warehouse_id=warehouse_id,
-        model_type=model_type,
-        forecast_horizon=forecast_horizon,
-        status=ForecastStatus.pending,
-        created_by=created_by,
-    )
-    db.add(run)
-    db.flush()  # assigns run.id, needed below, without committing yet
 
+def _train_and_predict(db: Session, run: ForecastRun) -> None:
+    """Does the actual training/prediction for an already-created `run`
+    (status=pending, id assigned), mutating it in place and committing —
+    whatever `db` session is passed in. Split out from create_forecast_run
+    so the same logic can run either synchronously in-request (see
+    create_forecast_run, used directly by non-HTTP callers and tests) or in
+    a FastAPI BackgroundTasks callback against its own session (see
+    run_forecast_training_in_background, used by POST /forecast) — a
+    request-scoped `Depends(get_db)` session isn't safe to keep using once
+    the response it belongs to has been sent.
+    """
     try:
-        history = _load_history(db, product_id, warehouse_id)
+        history = _load_history(db, run.product_id, run.warehouse_id)
 
-        if model_type == "moving_average":
-            predictions, rmse, mae, model = _forecast_moving_average(history, forecast_horizon)
-        elif model_type == "random_forest":
-            predictions, rmse, mae, model = _forecast_random_forest(history, forecast_horizon)
+        if run.model_type == "moving_average":
+            predictions, rmse, mae, model = _forecast_moving_average(history, run.forecast_horizon)
+        elif run.model_type == "random_forest":
+            predictions, rmse, mae, model = _forecast_random_forest(history, run.forecast_horizon)
         else:
-            predictions, rmse, mae, model = _forecast_exponential_smoothing(history, forecast_horizon)
+            predictions, rmse, mae, model = _forecast_exponential_smoothing(history, run.forecast_horizon)
 
-        future_dates = _future_dates(history["date"].max(), forecast_horizon)
+        future_dates = _future_dates(history["date"].max(), run.forecast_horizon)
         for forecast_date, predicted_sales in zip(future_dates, predictions):
             db.add(
                 ForecastPrediction(
@@ -166,6 +173,7 @@ def create_forecast_run(
         run.rmse = rmse
         run.mae = mae
         run.model_artifact_path = artifact_path
+        db.commit()
 
     except InsufficientHistoryError:
         run.status = ForecastStatus.failed
@@ -177,6 +185,107 @@ def create_forecast_run(
         logger.exception("Forecast run %s failed", run.id)
         raise
 
+
+def create_forecast_run(
+    db: Session,
+    product_id: int,
+    warehouse_id: int,
+    model_type: str,
+    forecast_horizon: int,
+    created_by: Optional[int] = None,
+) -> ForecastRun:
+    """Synchronous, single-session, train-immediately path: creates the run
+    and trains it before returning. For direct/programmatic callers (tests,
+    scripts) — the HTTP API instead uses create_pending_forecast_run +
+    run_forecast_training_in_background so POST /forecast doesn't block the
+    request on training. Behaves identically to before this split existed:
+    raises on invalid params or insufficient history, returns a completed
+    (or raises on failure) run otherwise.
+    """
+    _validate_forecast_params(model_type, forecast_horizon)
+
+    run = ForecastRun(
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        model_type=model_type,
+        forecast_horizon=forecast_horizon,
+        status=ForecastStatus.pending,
+        created_by=created_by,
+    )
+    db.add(run)
+    db.flush()  # assigns run.id, needed by _train_and_predict, without committing yet
+
+    _train_and_predict(db, run)
+
+    db.refresh(run)
+    return run
+
+
+def create_pending_forecast_run(
+    db: Session,
+    product_id: int,
+    warehouse_id: int,
+    model_type: str,
+    forecast_horizon: int,
+    created_by: Optional[int] = None,
+) -> ForecastRun:
+    """Validates params and inserts+commits a status=pending ForecastRun
+    immediately, without training. Pair with
+    run_forecast_training_in_background(run.id) — typically scheduled via
+    FastAPI's BackgroundTasks — to actually train it. Used by POST
+    /forecast so the request returns right away instead of blocking on
+    model training.
+
+    Insufficient history is still checked here (a cheap COUNT query), not
+    deferred to the background task — no reason to accept a request and
+    make the caller poll just to learn it was rejected for a reason we
+    could tell them synchronously.
+    """
+    _validate_forecast_params(model_type, forecast_horizon)
+    _require_sufficient_history(_history_row_count(db, product_id, warehouse_id))
+
+    run = ForecastRun(
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        model_type=model_type,
+        forecast_horizon=forecast_horizon,
+        status=ForecastStatus.pending,
+        created_by=created_by,
+    )
+    db.add(run)
     db.commit()
     db.refresh(run)
     return run
+
+
+def run_forecast_training_in_background(run_id: int) -> None:
+    """The actual training work for a run already created via
+    create_pending_forecast_run — opens its own DB session (deliberately
+    NOT reusing the request's, which may already be closed by the time a
+    BackgroundTasks callback executes) and hands off to _train_and_predict.
+    Exceptions are logged, not raised — there's no request left to
+    propagate them to; the run's own `status`/row is the only way a caller
+    finds out training failed (poll GET /forecast/{run_id}).
+
+    Accessed as database.SessionLocal (module-qualified), not via
+    `from database import SessionLocal`, so tests/conftest.py's db_session
+    fixture can monkeypatch database.SessionLocal to an isolated per-test
+    engine and have it actually take effect here — a `from ... import`
+    would freeze this module's own reference at import time, before any
+    test fixture runs, making it unpatchable from outside.
+    """
+    db = database.SessionLocal()
+    try:
+        run = db.get(ForecastRun, run_id)
+        if run is None:
+            logger.error("run_forecast_training_in_background: ForecastRun %s not found", run_id)
+            return
+        try:
+            _train_and_predict(db, run)
+        except Exception:
+            # _train_and_predict already logs + commits status=failed;
+            # this just stops the exception from propagating out of a
+            # BackgroundTasks callback, where nothing would catch it.
+            pass
+    finally:
+        db.close()

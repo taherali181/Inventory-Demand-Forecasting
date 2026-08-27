@@ -34,7 +34,9 @@ def test_warehouse_crud_requires_auth_for_writes(db_session):
 
     list_response = client.get("/warehouses")
     assert list_response.status_code == 200
-    assert any(w["id"] == warehouse_id for w in list_response.json())
+    list_body = list_response.json()
+    assert list_body["total"] == 1
+    assert any(w["id"] == warehouse_id for w in list_body["items"])
 
     update_response = client.put(f"/warehouses/{warehouse_id}", json={"city": "Austin"}, headers=headers)
     assert update_response.status_code == 200
@@ -42,7 +44,9 @@ def test_warehouse_crud_requires_auth_for_writes(db_session):
 
     delete_response = client.delete(f"/warehouses/{warehouse_id}", headers=headers)
     assert delete_response.status_code == 204
-    assert client.get("/warehouses").json() == []  # deactivated, excluded by default
+    # Deactivated, excluded by default.
+    deactivated_list = client.get("/warehouses").json()
+    assert deactivated_list == {"items": [], "total": 0}
 
     assert client.get("/warehouses/999999").status_code == 404
 
@@ -91,7 +95,8 @@ def test_product_and_stock_adjustment_flow(db_session):
 
     list_response = client.get(f"/stock?product_id={product['id']}")
     assert list_response.status_code == 200
-    assert len(list_response.json()) == 1
+    assert list_response.json()["total"] == 1
+    assert len(list_response.json()["items"]) == 1
 
 
 def test_stock_adjust_requires_auth(db_session):
@@ -130,4 +135,4 @@ def test_concurrent_stock_adjustments_all_land(db_session):
     assert all(r.status_code == 200 for r in responses)
 
     final = client.get(f"/stock?product_id={product['id']}&warehouse_id={warehouse['id']}").json()
-    assert final[0]["quantity_on_hand"] == adjustment_count
+    assert final["items"][0]["quantity_on_hand"] == adjustment_count

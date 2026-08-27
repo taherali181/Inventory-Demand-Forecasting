@@ -1,23 +1,28 @@
 # routers/suppliers.py
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Supplier, User
 from routers.auth import require_admin
-from schemas import SupplierCreate, SupplierRead, SupplierUpdate
+from schemas import PaginatedResponse, SupplierCreate, SupplierRead, SupplierUpdate
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
 
-@router.get("", response_model=List[SupplierRead])
-def list_suppliers(include_inactive: bool = False, db: Session = Depends(get_db)):
+@router.get("", response_model=PaginatedResponse[SupplierRead])
+def list_suppliers(
+    include_inactive: bool = False,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+):
     query = db.query(Supplier)
     if not include_inactive:
         query = query.filter(Supplier.is_active.is_(True))
-    return query.order_by(Supplier.name).all()
+    total = query.count()
+    items = query.order_by(Supplier.name).offset(skip).limit(limit).all()
+    return PaginatedResponse(items=items, total=total)
 
 
 @router.post("", response_model=SupplierRead, status_code=status.HTTP_201_CREATED)

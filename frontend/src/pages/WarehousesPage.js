@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import DataTable from '../components/DataTable';
+import LoadMoreButton from '../components/LoadMoreButton';
 import { createWarehouse, deactivateWarehouse, listWarehouses } from '../api/warehouses';
+import usePaginatedList from '../hooks/usePaginatedList';
 import { useAuth } from '../context/AuthContext';
 
 const baseColumns = [
@@ -14,36 +16,28 @@ const emptyForm = { name: '', code: '', city: '', country: '' };
 
 function WarehousesPage() {
   const { user } = useAuth();
-  const [warehouses, setWarehouses] = useState([]);
   const [form, setForm] = useState(emptyForm);
-  const [error, setError] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const refresh = () => {
-    setIsLoading(true);
-    listWarehouses()
-      .then(setWarehouses)
-      .catch(() => setError('Could not load warehouses.'))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(refresh, []);
+  const [formError, setFormError] = useState(null);
+  const { items, total, isLoading, error, reload, loadMore, hasMore } = usePaginatedList(
+    ({ skip, limit }) => listWarehouses(false, { skip, limit }),
+    []
+  );
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setError(null);
+    setFormError(null);
     try {
       await createWarehouse(form);
       setForm(emptyForm);
-      refresh();
+      reload();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not create warehouse.');
+      setFormError(err.response?.data?.detail || 'Could not create warehouse.');
     }
   };
 
   const handleDeactivate = async (id) => {
     await deactivateWarehouse(id);
-    refresh();
+    reload();
   };
 
   const columns = user
@@ -91,8 +85,10 @@ function WarehousesPage() {
         <p className="hint">Log in to add or manage warehouses.</p>
       )}
 
+      {formError && <p className="form-error">{formError}</p>}
       {error && <p className="form-error">{error}</p>}
-      {isLoading ? <p>Loading…</p> : <DataTable columns={columns} rows={warehouses} />}
+      {isLoading && items.length === 0 ? <p>Loading…</p> : <DataTable columns={columns} rows={items} />}
+      <LoadMoreButton items={items} total={total} hasMore={hasMore} isLoading={isLoading} onLoadMore={loadMore} />
     </div>
   );
 }

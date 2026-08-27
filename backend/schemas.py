@@ -5,11 +5,22 @@ Grows alongside the routers that use them — see models.py for the underlying
 ORM schema this mirrors.
 """
 import datetime as dt
-from typing import List, Optional
+from typing import Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from models import AlertStatus, ForecastStatus, MovementType, PurchaseOrderStatus, UserRole
+
+T = TypeVar("T")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Wraps every list endpoint's response: `items` is this page's slice,
+    `total` is the full (unpaginated) row count matching the same filters —
+    lets a frontend page render "1-50 of 340" without a second request."""
+
+    items: List[T]
+    total: int
 
 # bcrypt's own hard limit is 72 bytes; enforcing it here gives a clean 422
 # instead of a 500 out of auth.hash_password().
@@ -267,3 +278,12 @@ class ForecastRunRead(BaseModel):
     mae: Optional[float]
     status: ForecastStatus
     predictions: List[ForecastPredictionRead]
+
+
+class UploadAcceptedRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    status: str
+    uploaded_at: dt.datetime

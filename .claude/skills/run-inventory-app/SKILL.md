@@ -61,6 +61,13 @@ cd ../frontend && [ -f .env.local ] || cp .env.example .env.local
 
 ## Run
 
+As of Phase 8, the schema is Alembic-managed, not auto-created on startup — run this once per fresh
+database (harmless/fast to re-run; a no-op if already up to date):
+
+```bash
+cd backend && alembic upgrade head
+```
+
 Background-launch both (they must stay up while you test):
 
 ```bash

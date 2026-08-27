@@ -66,19 +66,32 @@ def test_forecast_create_and_reread_without_retraining(db_session):
             "forecast_horizon": 4,
         },
     )
-    assert create_response.status_code == 201
+    # 202, not 201/completed-with-predictions: training now runs as a
+    # BackgroundTasks callback (see forecasting.run_forecast_training_in_
+    # background), so the response reflects the run's state at the moment
+    # the endpoint returned — before training has necessarily happened.
+    assert create_response.status_code == 202
     body = create_response.json()
-    assert body["status"] == "completed"
-    assert len(body["predictions"]) == 4
+    assert body["status"] == "pending"
+    assert body["predictions"] == []
     run_id = body["id"]
 
+    # FastAPI's TestClient runs BackgroundTasks synchronously as part of
+    # the same request/response cycle, so by the time client.post() above
+    # returned, training had already actually finished — this GET is a
+    # genuine re-read of the persisted result, not a wait/poll loop.
     reread_response = client.get(f"/forecast/{run_id}")
     assert reread_response.status_code == 200
-    assert reread_response.json()["predictions"] == body["predictions"]
+    reread_body = reread_response.json()
+    assert reread_body["status"] == "completed"
+    assert len(reread_body["predictions"]) == 4
+
+    second_reread = client.get(f"/forecast/{run_id}")
+    assert second_reread.json()["predictions"] == reread_body["predictions"]
 
     list_response = client.get(f"/forecast?product_id={product_id}&warehouse_id={warehouse_id}")
     assert list_response.status_code == 200
-    assert any(run["id"] == run_id for run in list_response.json())
+    assert any(run["id"] == run_id for run in list_response.json()["items"])
 
 
 def test_forecast_missing_run_returns_404(db_session):

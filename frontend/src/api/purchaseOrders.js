@@ -1,7 +1,8 @@
 import client from './client';
 
-export function listPurchaseOrders() {
-  return client.get('/purchase-orders').then((res) => res.data);
+// Returns { items, total } — see components/PaginatedList.js.
+export function listPurchaseOrders({ skip = 0, limit = 50 } = {}) {
+  return client.get('/purchase-orders', { params: { skip, limit } }).then((res) => res.data);
 }
 
 export function getPurchaseOrder(id) {

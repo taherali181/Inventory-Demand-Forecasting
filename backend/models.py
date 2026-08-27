@@ -111,8 +111,8 @@ class StockLevel(Base):
     __table_args__ = (UniqueConstraint("product_id", "warehouse_id", name="uq_stock_product_warehouse"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
     quantity_on_hand: Mapped[int] = mapped_column(Integer, default=0)
     quantity_reserved: Mapped[int] = mapped_column(Integer, default=0)
     last_updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
@@ -136,13 +136,13 @@ class StockMovement(Base):
     __tablename__ = "stock_movements"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
     movement_type: Mapped[MovementType] = mapped_column(Enum(MovementType))
     quantity_delta: Mapped[int] = mapped_column(Integer)
     reference_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     reference_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
@@ -160,12 +160,12 @@ class PurchaseOrder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     po_number: Mapped[str] = mapped_column(String(50), unique=True, index=True)
-    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
-    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"))
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
     status: Mapped[PurchaseOrderStatus] = mapped_column(Enum(PurchaseOrderStatus), default=PurchaseOrderStatus.draft)
     order_date: Mapped[Optional[dt.date]] = mapped_column(Date, nullable=True)
     expected_delivery_date: Mapped[Optional[dt.date]] = mapped_column(Date, nullable=True)
-    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
@@ -178,8 +178,8 @@ class PurchaseOrderItem(Base):
     __tablename__ = "purchase_order_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"))
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     quantity_ordered: Mapped[int] = mapped_column(Integer)
     quantity_received: Mapped[int] = mapped_column(Integer, default=0)
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
@@ -257,9 +257,22 @@ class UploadHistory(Base):
     filename: Mapped[str] = mapped_column(String(255))
     uploaded_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     row_count: Mapped[int] = mapped_column(Integer, default=0)
+    # "processing" (persistence + EDA running in the background) ->
+    # "completed" or "failed". "failed" here covers CSV validation errors
+    # caught synchronously in the request too, so status alone doesn't
+    # tell you which stage failed — see error_message for that.
     status: Mapped[str] = mapped_column(String(50), default="completed")
     error_message: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Path to the feature-engineered CSV this upload produced (still a
+    # file, not DB rows — forecasting.py reads sales_records directly, but
+    # eda.py's matplotlib pipeline still works off this file; see CLAUDE.md).
+    processed_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # eda.perform_eda()'s return value, cached here once the background job
+    # computes it — replaces the old app.state.data_path global (a single
+    # shared in-process variable the next upload would silently clobber)
+    # with a per-upload, DB-backed result GET /eda can look up by id.
+    eda_results: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
 
 class AlertStatus(str, enum.Enum):
@@ -272,8 +285,8 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
     alert_type: Mapped[str] = mapped_column(String(50), default="low_stock")
     threshold_value: Mapped[float] = mapped_column(Float)
     current_value: Mapped[float] = mapped_column(Float)

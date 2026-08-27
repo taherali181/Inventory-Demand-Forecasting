@@ -326,3 +326,10 @@ input[type='number'] {
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
+
+.load-more {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}

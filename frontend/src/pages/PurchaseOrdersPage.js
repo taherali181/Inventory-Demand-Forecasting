@@ -1,29 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import DataTable from '../components/DataTable';
+import LoadMoreButton from '../components/LoadMoreButton';
 import POForm from '../components/POForm';
 import { createPurchaseOrder, listPurchaseOrders } from '../api/purchaseOrders';
+import usePaginatedList from '../hooks/usePaginatedList';
 import { useAuth } from '../context/AuthContext';
 
 function PurchaseOrdersPage() {
   const { user } = useAuth();
-  const [orders, setOrders] = useState([]);
-  const [error, setError] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const refresh = () => {
-    setIsLoading(true);
-    listPurchaseOrders()
-      .then(setOrders)
-      .catch(() => setError('Could not load purchase orders.'))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(refresh, []);
+  const { items, total, isLoading, error, reload, loadMore, hasMore } = usePaginatedList(
+    ({ skip, limit }) => listPurchaseOrders({ skip, limit }),
+    []
+  );
 
   const handleCreate = async (payload) => {
     await createPurchaseOrder(payload);
-    refresh();
+    reload();
   };
 
   const columns = [
@@ -44,11 +37,12 @@ function PurchaseOrdersPage() {
       {user ? <POForm onSubmit={handleCreate} /> : <p className="hint">Log in to create purchase orders.</p>}
 
       {error && <p className="form-error">{error}</p>}
-      {isLoading ? (
+      {isLoading && items.length === 0 ? (
         <p>Loading…</p>
       ) : (
-        <DataTable columns={columns} rows={orders} emptyMessage="No purchase orders yet." />
+        <DataTable columns={columns} rows={items} emptyMessage="No purchase orders yet." />
       )}
+      <LoadMoreButton items={items} total={total} hasMore={hasMore} isLoading={isLoading} onLoadMore={loadMore} />
     </div>
   );
 }

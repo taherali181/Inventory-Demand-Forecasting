@@ -16,17 +16,17 @@ function POForm({ onSubmit }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    listSuppliers().then((data) => {
-      setSuppliers(data);
-      if (data.length > 0) setSupplierId(String(data[0].id));
+    listSuppliers(false, { limit: 200 }).then((data) => {
+      setSuppliers(data.items);
+      if (data.items.length > 0) setSupplierId(String(data.items[0].id));
     });
-    listWarehouses().then((data) => {
-      setWarehouses(data);
-      if (data.length > 0) setWarehouseId(String(data[0].id));
+    listWarehouses(false, { limit: 200 }).then((data) => {
+      setWarehouses(data.items);
+      if (data.items.length > 0) setWarehouseId(String(data.items[0].id));
     });
-    listProducts().then((data) => {
-      setProducts(data);
-      setItems([{ ...emptyLine, product_id: data.length > 0 ? String(data[0].id) : '' }]);
+    listProducts(false, { limit: 200 }).then((data) => {
+      setProducts(data.items);
+      setItems([{ ...emptyLine, product_id: data.items.length > 0 ? String(data.items[0].id) : '' }]);
     });
   }, []);
 

@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import DataTable from '../components/DataTable';
+import LoadMoreButton from '../components/LoadMoreButton';
 import StockAdjustModal from '../components/StockAdjustModal';
 import { createProduct, deactivateProduct, listProducts } from '../api/products';
+import usePaginatedList from '../hooks/usePaginatedList';
 import { useAuth } from '../context/AuthContext';
 
 const baseColumns = [
@@ -16,25 +18,17 @@ const emptyForm = { sku_code: '', name: '', category: '', reorder_point: 0, unit
 
 function ProductsPage() {
   const { user } = useAuth();
-  const [products, setProducts] = useState([]);
   const [form, setForm] = useState(emptyForm);
-  const [error, setError] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [formError, setFormError] = useState(null);
   const [adjustingProduct, setAdjustingProduct] = useState(null);
-
-  const refresh = () => {
-    setIsLoading(true);
-    listProducts()
-      .then(setProducts)
-      .catch(() => setError('Could not load products.'))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(refresh, []);
+  const { items, total, isLoading, error, reload, loadMore, hasMore } = usePaginatedList(
+    ({ skip, limit }) => listProducts(false, { skip, limit }),
+    []
+  );
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setError(null);
+    setFormError(null);
     try {
       await createProduct({
         ...form,
@@ -42,15 +36,15 @@ function ProductsPage() {
         unit_price: Number(form.unit_price),
       });
       setForm(emptyForm);
-      refresh();
+      reload();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not create product.');
+      setFormError(err.response?.data?.detail || 'Could not create product.');
     }
   };
 
   const handleDeactivate = async (id) => {
     await deactivateProduct(id);
-    refresh();
+    reload();
   };
 
   const columns = user
@@ -117,11 +111,17 @@ function ProductsPage() {
         <p className="hint">Log in to add or manage products.</p>
       )}
 
+      {formError && <p className="form-error">{formError}</p>}
       {error && <p className="form-error">{error}</p>}
-      {isLoading ? <p>Loading…</p> : <DataTable columns={columns} rows={products} />}
+      {isLoading && items.length === 0 ? <p>Loading…</p> : <DataTable columns={columns} rows={items} />}
+      <LoadMoreButton items={items} total={total} hasMore={hasMore} isLoading={isLoading} onLoadMore={loadMore} />
 
       {adjustingProduct && (
-        <StockAdjustModal product={adjustingProduct} onClose={() => setAdjustingProduct(null)} onAdjusted={() => {}} />
+        <StockAdjustModal
+          product={adjustingProduct}
+          onClose={() => setAdjustingProduct(null)}
+          onAdjusted={() => reload()}
+        />
       )}
     </div>
   );

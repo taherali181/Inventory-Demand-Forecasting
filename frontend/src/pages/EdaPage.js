@@ -12,7 +12,12 @@ function EdaPage() {
     setIsLoading(true);
     try {
       const data = await getEda();
-      setEda(data);
+      if (data.status === 'processing') {
+        setError('The most recent upload is still processing — try again in a moment.');
+        setEda(null);
+      } else {
+        setEda(data);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'EDA failed.');
       setEda(null);

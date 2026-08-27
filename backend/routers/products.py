@@ -1,13 +1,11 @@
 # routers/products.py
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Product, Supplier, User
 from routers.auth import require_admin
-from schemas import ProductCreate, ProductRead, ProductUpdate
+from schemas import PaginatedResponse, ProductCreate, ProductRead, ProductUpdate
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -17,12 +15,19 @@ def _validate_supplier(db: Session, supplier_id: int) -> None:
         raise HTTPException(status_code=400, detail="default_supplier_id does not refer to an existing supplier.")
 
 
-@router.get("", response_model=List[ProductRead])
-def list_products(include_inactive: bool = False, db: Session = Depends(get_db)):
+@router.get("", response_model=PaginatedResponse[ProductRead])
+def list_products(
+    include_inactive: bool = False,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+):
     query = db.query(Product)
     if not include_inactive:
         query = query.filter(Product.is_active.is_(True))
-    return query.order_by(Product.name).all()
+    total = query.count()
+    items = query.order_by(Product.name).offset(skip).limit(limit).all()
+    return PaginatedResponse(items=items, total=total)
 
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)

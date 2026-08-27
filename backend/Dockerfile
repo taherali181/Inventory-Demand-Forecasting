@@ -13,4 +13,6 @@ WORKDIR /app/backend
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Applies pending Alembic migrations before every container start — cheap
+# and idempotent when there's nothing new to apply (see backend/alembic/).
+CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]

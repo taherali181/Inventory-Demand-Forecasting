@@ -1,9 +1,8 @@
 # routers/purchase_orders.py
 import uuid
 from contextlib import ExitStack
-from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
@@ -21,6 +20,7 @@ from models import (
 )
 from routers.auth import get_current_user
 from schemas import (
+    PaginatedResponse,
     PurchaseOrderCreate,
     PurchaseOrderRead,
     PurchaseOrderReceive,
@@ -51,15 +51,35 @@ def _generate_po_number(db: Session) -> str:
             return candidate
 
 
-@router.get("", response_model=List[PurchaseOrderRead])
-def list_purchase_orders(db: Session = Depends(get_db)):
-    return (
+@router.get("", response_model=PaginatedResponse[PurchaseOrderRead])
+def list_purchase_orders(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+):
+    total = db.query(PurchaseOrder).count()
+    # Page over PO ids first (no join), *then* eager-load items for just
+    # that page — applying LIMIT/OFFSET directly to a query that also
+    # joinedload()s a one-to-many collection is a known footgun: a PO with
+    # multiple items can make the limit land mid-PO, so a "page of 50"
+    # joined rows doesn't reliably mean 50 distinct purchase orders.
+    page_ids = [
+        po_id
+        for (po_id,) in db.query(PurchaseOrder.id)
+        .order_by(PurchaseOrder.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    ]
+    items = (
         db.query(PurchaseOrder)
         .options(joinedload(PurchaseOrder.items))
+        .filter(PurchaseOrder.id.in_(page_ids))
         .order_by(PurchaseOrder.created_at.desc())
         .unique()
         .all()
     )
+    return PaginatedResponse(items=items, total=total)
 
 
 @router.post("", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED)
