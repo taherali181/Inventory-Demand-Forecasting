@@ -23,6 +23,18 @@ function Navbar() {
         <NavLink to="/eda" className={linkClass}>
           EDA
         </NavLink>
+        <NavLink to="/warehouses" className={linkClass}>
+          Warehouses
+        </NavLink>
+        <NavLink to="/suppliers" className={linkClass}>
+          Suppliers
+        </NavLink>
+        <NavLink to="/products" className={linkClass}>
+          Products
+        </NavLink>
+        <NavLink to="/stock" className={linkClass}>
+          Stock
+        </NavLink>
       </div>
       <div className="navbar-auth">
         {user ? (

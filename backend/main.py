@@ -8,7 +8,7 @@ import models  # noqa: F401 -- registers all tables on Base.metadata before crea
 from chatbot import app as chatbot_app
 from config import CORS_ALLOWED_ORIGINS
 from database import Base, engine
-from routers import auth, eda, forecast, upload
+from routers import auth, eda, forecast, products, stock, suppliers, upload, warehouses
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -36,4 +36,8 @@ app.include_router(auth.router)
 app.include_router(upload.router)
 app.include_router(forecast.router)
 app.include_router(eda.router)
+app.include_router(warehouses.router)
+app.include_router(suppliers.router)
+app.include_router(products.router)
+app.include_router(stock.router)
 app.mount("/chatbot", chatbot_app)
