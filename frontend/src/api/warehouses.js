@@ -2,9 +2,9 @@ import client from './client';
 
 // Returns { items, total } — see components/LoadMoreButton.js for the
 // "Load more" pattern shared by every paginated list page.
-export function listWarehouses(includeInactive = false, { skip = 0, limit = 50 } = {}) {
+export function listWarehouses(includeInactive = false, { skip = 0, limit = 50, search } = {}) {
   return client
-    .get('/warehouses', { params: { include_inactive: includeInactive, skip, limit } })
+    .get('/warehouses', { params: { include_inactive: includeInactive, skip, limit, search: search || undefined } })
     .then((res) => res.data);
 }
 

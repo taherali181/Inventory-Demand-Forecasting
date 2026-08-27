@@ -5,7 +5,7 @@ environment (and a .env file in development, via pydantic-settings) — see
 where these actually get used.
 """
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     # same way. See database.py for how these are actually used.
     db_pool_size: int = 5
     db_max_overflow: int = 10
+
+    # Email notifications for newly-opened low-stock alerts (see
+    # notifications.py). Empty by default — recompute_alerts only schedules
+    # a send when this is non-empty AND at least one alert was newly
+    # opened, so nothing is sent (or attempted) out of the box.
+    alert_notification_emails: List[str] = []
+    smtp_host: str = "localhost"
+    smtp_port: int = 587
+    smtp_from_address: str = "alerts@inventory-forecasting.local"
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_use_tls: bool = True
 
 
 settings = Settings()

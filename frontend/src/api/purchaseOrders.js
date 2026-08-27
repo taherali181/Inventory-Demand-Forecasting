@@ -1,4 +1,4 @@
-import client from './client';
+import client, { API_BASE_URL } from './client';
 
 // Returns { items, total } — see components/LoadMoreButton.js.
 export function listPurchaseOrders({ skip = 0, limit = 50 } = {}) {
@@ -19,4 +19,10 @@ export function updatePurchaseOrderStatus(id, status) {
 
 export function receivePurchaseOrder(id, items) {
   return client.post(`/purchase-orders/${id}/receive`, { items }).then((res) => res.data);
+}
+
+// See api/products.js's productsExportUrl for why this is a plain URL, not
+// an axios call.
+export function purchaseOrdersExportUrl() {
+  return `${API_BASE_URL}/purchase-orders/export`;
 }

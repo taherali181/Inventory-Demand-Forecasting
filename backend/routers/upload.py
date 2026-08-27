@@ -2,14 +2,14 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from data_processing import upload_and_validate_csv
 from database import get_db
 from models import UploadHistory, User
 from routers.auth import get_current_user_optional
-from schemas import UploadAcceptedRead
+from schemas import PaginatedResponse, UploadAcceptedRead, UploadHistoryRead
 from upload_processing import process_upload_in_background
 
 logger = logging.getLogger(__name__)
@@ -62,3 +62,18 @@ async def upload_file(
     background_tasks.add_task(process_upload_in_background, upload_record.id)
 
     return upload_record
+
+
+@router.get("/upload/history", response_model=PaginatedResponse[UploadHistoryRead])
+def list_upload_history(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+):
+    """Every upload's outcome (status/row_count/validation_summary), most
+    recent first — the audit-log counterpart to GET /stock/movements
+    (Change 11.3 reuses both as the two data sources behind the frontend
+    audit log page)."""
+    total = db.query(UploadHistory).count()
+    items = db.query(UploadHistory).order_by(UploadHistory.uploaded_at.desc()).offset(skip).limit(limit).all()
+    return PaginatedResponse(items=items, total=total)

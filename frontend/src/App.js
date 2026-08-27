@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import './App.css';
 import Navbar from './components/Navbar';
 import { AuthProvider } from './context/AuthContext';
+import AuditLogPage from './pages/AuditLogPage';
 import DashboardPage from './pages/DashboardPage';
 import EdaPage from './pages/EdaPage';
 import ForecastPage from './pages/ForecastPage';
@@ -12,10 +13,12 @@ import ProductsPage from './pages/ProductsPage';
 import PurchaseOrderDetailPage from './pages/PurchaseOrderDetailPage';
 import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
 import RegisterPage from './pages/RegisterPage';
+import ReorderSuggestionsPage from './pages/ReorderSuggestionsPage';
 import StockMovementsPage from './pages/StockMovementsPage';
 import StockPage from './pages/StockPage';
 import SuppliersPage from './pages/SuppliersPage';
 import UploadPage from './pages/UploadPage';
+import UsersPage from './pages/UsersPage';
 import WarehousesPage from './pages/WarehousesPage';
 
 function App() {
@@ -36,8 +39,11 @@ function App() {
               <Route path="/stock" element={<StockPage />} />
               <Route path="/stock/movements" element={<StockMovementsPage />} />
               <Route path="/alerts" element={<AlertsPage />} />
+              <Route path="/reorder-suggestions" element={<ReorderSuggestionsPage />} />
               <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
               <Route path="/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
+              <Route path="/audit-log" element={<AuditLogPage />} />
+              <Route path="/users" element={<UsersPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
             </Routes>

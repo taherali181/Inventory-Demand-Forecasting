@@ -9,11 +9,10 @@ app (warehouses, suppliers, products, stock levels + audit trail, low-stock aler
 receiving) with real per-product/warehouse demand forecasting, a SQLite/SQLAlchemy database, JWT auth, a
 React frontend actually wired to the backend, CI, and Docker. `IMPROVEMENT_PLAN.md` (repo root) is a
 verified-against-the-code Phase 7–11 roadmap (security hardening → performance → architecture → UX →
-new features) picking up from there; Phase 7 (security hardening), Phase 8 (performance & scalability —
-Alembic, background tasks for upload/EDA/forecast, N+1 fixes, pagination, FK indexes), Phase 9 (architecture
-& code quality), and Phase 10 (UX, accessibility & frontend polish — see below) are done — check `git log`
-for what's actually landed. `README.md` is current and is the right starting point for a features/endpoints
-overview; this file covers the parts that need multiple files read together to understand.
+new features) picking up from there — **all 5 phases (7 through 11) are now complete**; check `git log` for
+what actually landed each phase. `README.md` is current and is the right starting point for a
+features/endpoints overview; this file covers the parts that need multiple files read together to
+understand.
 
 Everything below was verified by actually running it each phase (pytest, `npm run build`/`test`, and live
 `uvicorn`/`npm start` smoke tests against real HTTP requests) rather than only reviewed by eye — see commit
@@ -98,20 +97,46 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   `limiter`), includes every router. Does **not** create tables — schema is entirely Alembic's job now (see
   "Migrations" above); a fresh checkout with no DB file needs `alembic upgrade head` before `uvicorn` will
   serve anything but 500s.
-- `routers/{auth,upload,forecast,eda,warehouses,suppliers,products,stock,alerts,purchase_orders}.py` — one
-  file per resource. Errors are raised as `HTTPException`, not returned as 200-status error dicts. Two
-  auth tiers on writes: `require_admin` gates genuinely administrative writes (create/update/deactivate on
-  products/warehouses/suppliers, cancelling a PO — see `routers/auth.py`'s docstring for the exact line),
-  plain `get_current_user` gates routine staff writes (stock adjustments, PO create/receive, forecasts).
-  Reads, upload, and forecast creation stay open to anyone (upload/forecast use `get_current_user_optional`
-  just to attribute the action when a token is present). Every `list_*` endpoint returns
-  `{items: [...], total: N}` (`schemas.PaginatedResponse[T]`), not a bare array — `skip`/`limit` query
-  params, default `limit=50`/max `200`. `purchase_orders.py`'s list endpoint pages over PO **ids** first,
-  then `joinedload()`s just that page's `items` — combining `.offset().limit()` directly with a
-  one-to-many `joinedload` silently limits joined rows instead of distinct parent entities, a real
-  SQLAlchemy footgun, not a hypothetical one. `GET /stock/movements` (`product_id`/`warehouse_id`/
-  `start_date`/`end_date` filters, paginated) surfaces the `stock_movements` audit trail that `adjust_stock`
-  and `purchase_orders.py`'s `receive_purchase_order` were already writing but nothing previously read back.
+- `routers/{auth,upload,forecast,eda,warehouses,suppliers,products,stock,alerts,purchase_orders,dashboard,
+  reorder,users,health}.py` — one file per resource. Errors are raised as `HTTPException`, not returned as
+  200-status error dicts. Two auth tiers on writes: `require_admin` gates genuinely administrative writes
+  (create/update/deactivate on products/warehouses/suppliers, cancelling a PO, everything in `users.py` —
+  see `routers/auth.py`'s docstring for the exact line), plain `get_current_user` gates routine staff writes
+  (stock adjustments, PO create/receive, forecasts). Reads, upload, and forecast creation stay open to
+  anyone (upload/forecast use `get_current_user_optional` just to attribute the action when a token is
+  present). Every `list_*` endpoint returns `{items: [...], total: N}` (`schemas.PaginatedResponse[T]`), not
+  a bare array — `skip`/`limit` query params, default `limit=50`/max `200`. `products`/`warehouses`/
+  `suppliers` also accept `?search=` (case-insensitive substring match on name, and SKU for products).
+  `purchase_orders.py`'s list endpoint pages over PO **ids** first, then `joinedload()`s just that page's
+  `items` — combining `.offset().limit()` directly with a one-to-many `joinedload` silently limits joined
+  rows instead of distinct parent entities, a real SQLAlchemy footgun, not a hypothetical one. **That same
+  endpoint shipped completely broken for three phases** (`AttributeError: 'Query' object has no attribute
+  'unique'`, a 500 on every call) because a stray `.unique()` — valid only on a 2.0-style `Result` object,
+  not the legacy `db.query(...)` `Query` object used everywhere in this codebase — was left over from an
+  earlier draft; `Query.all()` already de-duplicates joined-eager-loaded parent entities on its own, no
+  `.unique()` needed or valid. No test ever called `GET /purchase-orders` directly until this was caught in
+  Phase 11 (see `tests/test_purchasing.py::test_purchase_order_full_lifecycle` and
+  `test_purchase_orders_list_with_multiple_items_returns_one_entity_per_po`) — a reminder that a paginated
+  list endpoint's own regression test has to actually call that endpoint, not just the create/update
+  endpoints that happen to share a router file. `GET /products/export` and `GET /purchase-orders/export`
+  stream CSV (stdlib `csv` module) and are both declared **before** their respective `/{id}` routes in the
+  file — the same "static path must come before a dynamic one" rule `GET /stock/movements` and
+  `GET /forecast/compare` also follow, for the same reason (else `"export"`/`"compare"` gets swallowed as
+  an invalid `{id}`/`{run_id}` and never reaches the real handler). `GET /stock/movements`
+  (`product_id`/`warehouse_id`/`start_date`/`end_date` filters, paginated) and `GET /upload/history`
+  (paginated) surface audit trails (`stock_movements`, `upload_history`) that were already being written but
+  had no read endpoint. `GET /forecast/compare?product_id=&warehouse_id=` returns each model type's most
+  recent *completed* run for that pair (omitting any model type never trained for it, not padding with a
+  placeholder) — reuses existing `ForecastRun`/`ForecastPrediction` data, no new training or storage.
+  `GET /reorder/suggestions` flags a `(product, warehouse)` pair as at-risk when
+  `current_available_stock - most_recent_forecast's_total_demand < product.reorder_point`; the suggested
+  order quantity uses `Product.reorder_quantity` if set, else a computed shortfall
+  (`ceil(reorder_point + forecasted_demand - current_stock)`). `GET /dashboard/kpis?days=30` computes
+  inventory turnover (a simplified `sales_in_period / current_total_on_hand` proxy — this app has no COGS
+  tracking or historical inventory snapshots, so this is the honest approximation the data actually
+  supports), stockout rate (fraction of existing `stock_levels` rows at exactly 0), and forecast accuracy
+  (MAE/MAPE comparing past-dated `ForecastPrediction`s against matching actual `SalesRecord`s — MAPE
+  excludes zero-actual days, since that's a division by zero, but MAE still counts them).
 - `database.py` / `models.py` / `schemas.py` — SQLAlchemy engine/session (`DATABASE_URL` from
   `config.settings`, defaults to SQLite under `backend/data/`), the full inventory ORM schema (users,
   refresh_tokens, warehouses, suppliers, products, stock_levels, stock_movements, purchase_orders + items,
@@ -236,6 +261,25 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   `upload_processing.py`'s background task rather than inline in the request handler. Must keep
   `matplotlib.use("Agg")` at import time and never call `plt.show()` — an interactive backend will
   hang/error when it's not running on a display thread.
+- `notifications.py` — `send_new_alert_notifications(alert_ids)`, scheduled via `BackgroundTasks` from
+  `routers/alerts.py`'s `recompute_alerts`, but **only** when that recompute genuinely opened at least one
+  new alert (tracked via a `newly_created_alerts` list built during the recompute loop — refreshing an
+  existing open alert's `current_value`, or auto-resolving one, does not count) and
+  `settings.alert_notification_emails` is non-empty. Uses stdlib `smtplib`, no new dependency; a send
+  failure is logged, not raised (no HTTP request left to propagate to by the time this runs, and the
+  recompute itself already committed successfully). Opens its own DB session the same
+  `database.SessionLocal()` (module-qualified) way as `forecasting.py`/`upload_processing.py`, for the same
+  test-patchability reason.
+- `logging_config.py` — `configure_logging()` (called once, at `main.py` import time) replaces the root
+  logger's handler with one emitting one JSON object per line (timestamp/level/logger/message, plus
+  `exception` when present) instead of `logging.basicConfig`'s default free-text format — what most log
+  aggregators expect. No `structlog` dependency; a small stdlib `logging.Formatter` subclass is enough at
+  this scale.
+- `routers/health.py` — `GET /health` does a real `SELECT 1` against the configured DB (not just "the
+  process is running"); 503 with `db: "unreachable"` if that fails, still valid JSON either way. `GET
+  /metrics` (Prometheus exposition format — request counts/latencies) comes from
+  `prometheus_fastapi_instrumentator.Instrumentator().instrument(app).expose(app)` in `main.py`, one line,
+  no per-endpoint instrumentation needed.
 - `tests/conftest.py` — the `db_session` fixture overrides `get_db` with an isolated per-test SQLite file
   **and** monkeypatches `database.SessionLocal` to the same test session factory, so background-task code
   that opens its own session (see above) also lands in the test DB. Also has a `_reset_rate_limits`
@@ -250,9 +294,10 @@ at its explicit CJS build — don't remove that override without re-verifying `n
 - `src/context/AuthContext.js` — access + refresh tokens in `localStorage`; on mount, if a token exists,
   calls `GET /auth/me` to resolve the user (clears tokens if that fails). No route requires login to
   *view* — write actions (add/edit/deactivate/adjust) conditionally render based on `useAuth().user`,
-  matching the backend's write-gating (note: the frontend doesn't yet distinguish admin vs. staff `role`
-  for which write actions to show — a plain-staff user can still see e.g. the "Add warehouse" form and
-  will get a 403 from the backend on submit).
+  matching the backend's write-gating (note: most write-gated forms still don't distinguish admin vs. staff
+  `role` for which actions to *show* — a plain-staff user can still see e.g. the "Add warehouse" form and
+  will get a 403 from the backend on submit; `UsersPage`/`Navbar`'s "Users" link are the one place that does
+  check `user.role === 'admin'` client-side, since that page has nothing useful to show a non-admin at all).
 - `src/api/client.js` — on a 401, attempts exactly one silent refresh-and-retry of the original request
   before giving up and clearing stored auth via `AuthContext`'s registered `setSessionExpiredHandler`
   (module-level callback, not a direct import, to avoid a circular import between the two). `/auth/*`
@@ -260,22 +305,36 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   test this (`jest.doMock('axios', ...)` + `jest.resetModules()` per test — a top-level `jest.mock('axios')`
   automock doesn't correctly shape axios's callable-function export).
 - `src/pages/*.js` — `DashboardPage`, `UploadPage`, `ForecastPage`, `EdaPage`, `WarehousesPage`,
-  `SuppliersPage`, `ProductsPage`, `StockPage`, `StockMovementsPage`, `AlertsPage`, `PurchaseOrdersPage` +
-  `PurchaseOrderDetailPage` (`/purchase-orders/:id`), `LoginPage`, `RegisterPage`. The 7 list pages
-  (`Warehouses`/`Suppliers`/`Products`/`Stock`/`StockMovements`/`Alerts`/`PurchaseOrders`) all use the shared
+  `SuppliersPage`, `ProductsPage`, `StockPage`, `StockMovementsPage`, `AlertsPage`, `ReorderSuggestionsPage`,
+  `PurchaseOrdersPage` + `PurchaseOrderDetailPage` (`/purchase-orders/:id`), `AuditLogPage`, `UsersPage`,
+  `LoginPage`, `RegisterPage`. The list pages (`Warehouses`/`Suppliers`/`Products`/`Stock`/
+  `StockMovements`/`Alerts`/`PurchaseOrders`/`Users`, plus `AuditLogPage`'s two tabs) all use the shared
   `usePaginatedList` hook (`src/hooks/usePaginatedList.js`) + `LoadMoreButton` component to consume the
   backend's `{items, total}` paginated responses — `reload()` for "refetch from scratch" (after a
   create/update), `loadMore()` to append the next page. The 3 CRUD pages (`Warehouses`/`Suppliers`/
   `Products`) share one more pattern: an `editingId` state that switches the same inline-form into edit
   mode (pre-filled, submit calls `updateX(id, payload)` instead of `createX(payload)`, submit button reads
-  "Save changes", a "Cancel edit" button appears) — added in Change 10.3 to actually use the
-  `updateProduct`/`updateWarehouse`/`updateSupplier` API functions, which existed and were tested at the
-  backend but had no frontend caller before. `ForecastPage` similarly wires up `getForecastRun`/
-  `listForecastRuns`: a "Past runs" list (filtered to the selected product/warehouse) lets you re-view an
-  earlier run's predictions via `getForecastRun` (which re-reads without retraining) instead of only ever
-  seeing the most recent submission's result. Each CRUD page's `handleDeactivate` is wrapped in try/catch
-  (Change 10.1) — it wasn't, before, so a failed deactivation (e.g. a 403 once Phase 7's RBAC landed) was an
-  unhandled promise rejection with no user-visible error.
+  "Save changes", a "Cancel edit" button appears), plus a debounced (`useDebouncedValue`) search box wired
+  to the backend's `?search=` param via `usePaginatedList`'s `deps` array. `ForecastPage` wires up
+  `getForecastRun`/`listForecastRuns`: a "Past runs" list (filtered to the selected product/warehouse) lets
+  you re-view an earlier run's predictions via `getForecastRun` (which re-reads without retraining) instead
+  of only ever seeing the most recent submission's result; a "Compare all trained models" checkbox fetches
+  `GET /forecast/compare` and overlays each model type's most recent run on one `ForecastChart` (its `runs`
+  prop — an array of `{label, predictions}` — takes priority over the single-series `predictions` prop when
+  both could apply). Each CRUD page's `handleDeactivate` is wrapped in try/catch — it wasn't, before, so a
+  failed deactivation (e.g. a 403 once Phase 7's RBAC landed) was an unhandled promise rejection with no
+  user-visible error. `ReorderSuggestionsPage`'s "Create PO" button navigates to `/purchase-orders` with
+  React Router `state: { initialItem: {...} }`; `PurchaseOrdersPage` reads `location.state?.initialItem` and
+  passes it to `POForm`, which pre-fills the warehouse and first line item from it (once, when its own
+  dropdown data finishes loading — a later prop change doesn't re-apply it, since the user may have already
+  started editing). `AuditLogPage` is a thin tab switcher over two audit trails that already had their own
+  endpoints (`GET /stock/movements`, `GET /upload/history`) — no new backend surface of its own.
+  `DashboardPage` fetches `GET /dashboard/kpis` on mount and renders 3 stat tiles (inventory turnover,
+  stockout rate, forecast MAPE) above the existing nav-card grid; a KPI value of `—` means the backend
+  returned `null` for it (e.g. no forecast predictions have a matching actual yet), not a fetch error.
+  `UsersPage` is admin-only both ways: the backend 403s a non-admin's `GET /users`, and the page itself
+  shows a plain "you need admin access" message rather than attempting the fetch at all when
+  `useAuth().user.role !== 'admin'`.
 - `src/components/` — `Navbar`, `FileUploadForm`, `ForecastChart` (chart.js; predictions are
   `{forecast_date, predicted_sales}` pairs, not bare numbers), `EdaCharts` (renders the backend's base64
   PNGs via `<img>`), `DataTable` (generic — pass `columns`/`rows`, used by every CRUD page),
@@ -289,6 +348,10 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   modal. The 3 CRUD pages' inline-form inputs each have a real `<label htmlFor>` (visually hidden via the
   `.sr-only` class in `App.css`, since a visible label breaks their compact horizontal `inline-form` layout
   — `placeholder` stays as the visible hint) rather than only a bare `placeholder` (Change 10.4).
+  `ProductsPage`/`PurchaseOrdersPage` render a plain `<a href={...ExportUrl()}>Export CSV</a>` — the backend
+  export endpoints are unauthenticated reads (same as every other list endpoint), so no axios call or auth
+  header is needed, just a direct link to the URL `api/{products,purchaseOrders}.js`'s
+  `{products,purchaseOrders}ExportUrl()` builds from `API_BASE_URL`.
 - Pages that fetch on mount need their API module mocked in tests (`jest.mock('../api/products')` etc.) —
   see `src/pages/ProductsPage.test.js` for the pattern. Without it, the test hits the real
   `REACT_APP_API_BASE_URL` and hangs/fails in CI, where no backend is running. To simulate a logged-in user

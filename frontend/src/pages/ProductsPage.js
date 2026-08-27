@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import DataTable from '../components/DataTable';
 import LoadMoreButton from '../components/LoadMoreButton';
 import StockAdjustModal from '../components/StockAdjustModal';
-import { createProduct, deactivateProduct, listProducts, updateProduct } from '../api/products';
+import { createProduct, deactivateProduct, listProducts, productsExportUrl, updateProduct } from '../api/products';
+import useDebouncedValue from '../hooks/useDebouncedValue';
 import usePaginatedList from '../hooks/usePaginatedList';
 import { useAuth } from '../context/AuthContext';
 
@@ -22,9 +23,11 @@ function ProductsPage() {
   const [formError, setFormError] = useState(null);
   const [adjustingProduct, setAdjustingProduct] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput);
   const { items, total, isLoading, error, reload, loadMore, hasMore } = usePaginatedList(
-    ({ skip, limit }) => listProducts(false, { skip, limit }),
-    []
+    ({ skip, limit }) => listProducts(false, { skip, limit, search }),
+    [search]
   );
 
   const handleSubmit = async (event) => {
@@ -103,6 +106,9 @@ function ProductsPage() {
   return (
     <div className="page">
       <h1>Products</h1>
+      <a href={productsExportUrl()} className="hint">
+        Export CSV
+      </a>
 
       {user ? (
         <form className="inline-form" onSubmit={handleSubmit}>
@@ -159,9 +165,23 @@ function ProductsPage() {
         <p className="hint">Log in to add or manage products.</p>
       )}
 
+      <div className="inline-form">
+        <label htmlFor="product_search" className="sr-only">Search products</label>
+        <input
+          id="product_search"
+          placeholder="Search by name or SKU…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+      </div>
+
       {formError && <p className="form-error">{formError}</p>}
       {error && <p className="form-error">{error}</p>}
-      {isLoading && items.length === 0 ? <p>Loading…</p> : <DataTable columns={columns} rows={items} />}
+      {isLoading && items.length === 0 ? (
+        <p>Loading…</p>
+      ) : (
+        <DataTable columns={columns} rows={items} emptyMessage={search ? 'No matching products.' : 'No records yet.'} />
+      )}
       <LoadMoreButton items={items} total={total} hasMore={hasMore} isLoading={isLoading} onLoadMore={loadMore} />
 
       {adjustingProduct && (

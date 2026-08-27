@@ -41,9 +41,20 @@ function Navbar() {
         <NavLink to="/alerts" className={linkClass}>
           Alerts
         </NavLink>
+        <NavLink to="/reorder-suggestions" className={linkClass}>
+          Reorder suggestions
+        </NavLink>
         <NavLink to="/purchase-orders" className={linkClass}>
           Purchase orders
         </NavLink>
+        <NavLink to="/audit-log" className={linkClass}>
+          Audit log
+        </NavLink>
+        {user?.role === 'admin' && (
+          <NavLink to="/users" className={linkClass}>
+            Users
+          </NavLink>
+        )}
       </div>
       <div className="navbar-auth">
         {user ? (

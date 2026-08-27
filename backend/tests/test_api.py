@@ -73,6 +73,13 @@ def test_upload_and_eda():
     assert latest_eda_response.status_code == 200
     assert latest_eda_response.json() == eda_response.json()
 
+    history_response = client.get("/upload/history")
+    assert history_response.status_code == 200
+    history_body = history_response.json()
+    assert history_body["total"] == 1
+    assert history_body["items"][0]["id"] == upload_id
+    assert history_body["items"][0]["status"] == "completed"
+
 
 def test_upload_returns_validation_summary_and_survives_bad_rows():
     # A CSV with a genuinely bad row (non-numeric store) alongside good

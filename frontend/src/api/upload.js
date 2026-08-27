@@ -7,3 +7,8 @@ export function uploadCsv(file) {
     .post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
     .then((res) => res.data);
 }
+
+// Returns { items, total } — see components/LoadMoreButton.js.
+export function listUploadHistory({ skip = 0, limit = 50 } = {}) {
+  return client.get('/upload/history', { params: { skip, limit } }).then((res) => res.data);
+}

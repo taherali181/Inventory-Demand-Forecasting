@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import DataTable from '../components/DataTable';
 import LoadMoreButton from '../components/LoadMoreButton';
 import { createWarehouse, deactivateWarehouse, listWarehouses, updateWarehouse } from '../api/warehouses';
+import useDebouncedValue from '../hooks/useDebouncedValue';
 import usePaginatedList from '../hooks/usePaginatedList';
 import { useAuth } from '../context/AuthContext';
 
@@ -19,9 +20,11 @@ function WarehousesPage() {
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput);
   const { items, total, isLoading, error, reload, loadMore, hasMore } = usePaginatedList(
-    ({ skip, limit }) => listWarehouses(false, { skip, limit }),
-    []
+    ({ skip, limit }) => listWarehouses(false, { skip, limit, search }),
+    [search]
   );
 
   const handleSubmit = async (event) => {
@@ -130,9 +133,23 @@ function WarehousesPage() {
         <p className="hint">Log in to add or manage warehouses.</p>
       )}
 
+      <div className="inline-form">
+        <label htmlFor="warehouse_search" className="sr-only">Search warehouses</label>
+        <input
+          id="warehouse_search"
+          placeholder="Search by name…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+      </div>
+
       {formError && <p className="form-error">{formError}</p>}
       {error && <p className="form-error">{error}</p>}
-      {isLoading && items.length === 0 ? <p>Loading…</p> : <DataTable columns={columns} rows={items} />}
+      {isLoading && items.length === 0 ? (
+        <p>Loading…</p>
+      ) : (
+        <DataTable columns={columns} rows={items} emptyMessage={search ? 'No matching warehouses.' : 'No records yet.'} />
+      )}
       <LoadMoreButton items={items} total={total} hasMore={hasMore} isLoading={isLoading} onLoadMore={loadMore} />
     </div>
   );

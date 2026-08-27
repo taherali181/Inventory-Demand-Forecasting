@@ -1,12 +1,12 @@
 # routers/forecast.py
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from forecasting import create_pending_forecast_run, run_forecast_training_in_background
-from models import ForecastRun, Product, User, Warehouse
+from forecasting import VALID_MODEL_TYPES, create_pending_forecast_run, run_forecast_training_in_background
+from models import ForecastRun, ForecastStatus, Product, User, Warehouse
 from routers.auth import get_current_user_optional
 from schemas import ForecastRequest, ForecastRunRead, PaginatedResponse
 
@@ -63,6 +63,33 @@ def list_forecast_runs(
     total = query.count()
     items = query.order_by(ForecastRun.trained_at.desc()).offset(skip).limit(limit).all()
     return PaginatedResponse(items=items, total=total)
+
+
+@router.get("/compare", response_model=List[ForecastRunRead])
+def compare_forecast_runs(product_id: int, warehouse_id: int, db: Session = Depends(get_db)):
+    """Returns each model type's most recent *completed* run for this
+    product/warehouse pair, side by side — reuses existing ForecastRun/
+    ForecastPrediction data, no new training or storage. A model type with
+    no completed run yet for this pair is simply omitted (not padded with
+    a placeholder), so this can return anywhere from 0 to
+    len(VALID_MODEL_TYPES) runs. Declared before GET /{run_id} so
+    "compare" isn't swallowed by that route."""
+    runs = []
+    for model_type in sorted(VALID_MODEL_TYPES):
+        run = (
+            db.query(ForecastRun)
+            .filter(
+                ForecastRun.product_id == product_id,
+                ForecastRun.warehouse_id == warehouse_id,
+                ForecastRun.model_type == model_type,
+                ForecastRun.status == ForecastStatus.completed,
+            )
+            .order_by(ForecastRun.trained_at.desc())
+            .first()
+        )
+        if run is not None:
+            runs.append(run)
+    return runs
 
 
 @router.get("/{run_id}", response_model=ForecastRunRead)

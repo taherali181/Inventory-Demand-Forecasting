@@ -220,6 +220,50 @@ def test_purchase_order_full_lifecycle(db_session):
     stock = client.get(f"/stock?product_id={product['id']}&warehouse_id={warehouse['id']}").json()
     assert stock["items"][0]["quantity_on_hand"] == 30
 
+    # GET /purchase-orders (the paginated list endpoint) was never actually
+    # exercised by any existing test until this line was added — it shipped
+    # broken (AttributeError: 'Query' object has no attribute 'unique',
+    # from a stray .unique() call left over from an earlier draft that
+    # confused the legacy Query API with the 2.0-style Result API) across
+    # three phases without anything catching it. See list_purchase_orders'
+    # comment for why .unique() was wrong there.
+    list_response = client.get("/purchase-orders")
+    assert list_response.status_code == 200
+    body = list_response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == po["id"]
+    assert body["items"][0]["items"][0]["quantity_received"] == 30
+
+
+def test_purchase_orders_list_with_multiple_items_returns_one_entity_per_po(db_session):
+    # A PO with more than one line item is exactly the case a joinedload
+    # without proper de-duplication would multiply — this is the case the
+    # AttributeError bug above was hiding.
+    headers = _auth_headers(db_session, "po-list-multi@example.com", "testpass123")
+    supplier, warehouse, product1 = _setup_supplier_warehouse_product(headers)
+    product2 = client.post(
+        "/products", json={"sku_code": "SKU-PO-2", "name": "Widget 2"}, headers=headers
+    ).json()
+
+    client.post(
+        "/purchase-orders",
+        json={
+            "supplier_id": supplier["id"],
+            "warehouse_id": warehouse["id"],
+            "items": [
+                {"product_id": product1["id"], "quantity_ordered": 5},
+                {"product_id": product2["id"], "quantity_ordered": 3},
+            ],
+        },
+        headers=headers,
+    )
+
+    response = client.get("/purchase-orders")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1  # one PO, not one row per line item
+    assert len(body["items"][0]["items"]) == 2
+
 
 def test_concurrent_partial_receipts_all_land(db_session):
     """Regression test for the stock_level_lock + with_for_update() added in

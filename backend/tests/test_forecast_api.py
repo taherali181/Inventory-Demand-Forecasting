@@ -116,3 +116,51 @@ def test_forecast_create_and_reread_without_retraining(db_session):
 
 def test_forecast_missing_run_returns_404(db_session):
     assert client.get("/forecast/999999").status_code == 404
+
+
+def test_forecast_compare_returns_the_most_recent_run_per_model_type(db_session):
+    db = db_session()
+    try:
+        warehouse, product = _seed_product_warehouse_with_history(db)
+        warehouse_id, product_id = warehouse.id, product.id
+    finally:
+        db.close()
+
+    # No runs yet — compare returns an empty list, not a 404.
+    empty = client.get(f"/forecast/compare?product_id={product_id}&warehouse_id={warehouse_id}")
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    # Train moving_average twice — compare should return only the more
+    # recent of the two runs for that model type, not both.
+    first_ma = client.post(
+        "/forecast",
+        json={"product_id": product_id, "warehouse_id": warehouse_id, "model_type": "moving_average"},
+    ).json()
+    second_ma = client.post(
+        "/forecast",
+        json={"product_id": product_id, "warehouse_id": warehouse_id, "model_type": "moving_average"},
+    ).json()
+    client.post(
+        "/forecast",
+        json={"product_id": product_id, "warehouse_id": warehouse_id, "model_type": "random_forest"},
+    )
+
+    compare = client.get(f"/forecast/compare?product_id={product_id}&warehouse_id={warehouse_id}")
+    assert compare.status_code == 200
+    body = compare.json()
+    model_types = {run["model_type"] for run in body}
+    assert model_types == {"moving_average", "random_forest"}  # exponential_smoothing never trained — omitted
+
+    ma_run = next(run for run in body if run["model_type"] == "moving_average")
+    assert ma_run["id"] == second_ma["id"]
+    assert ma_run["id"] != first_ma["id"]
+
+
+def test_forecast_compare_route_is_not_shadowed_by_run_id_route(db_session):
+    # "/forecast/compare" must not be captured by GET /forecast/{run_id}
+    # (which would try to parse "compare" as an int and 404/422) —
+    # regression guard, same class of bug as the /products/export and
+    # /purchase-orders/export route-ordering fixes.
+    response = client.get("/forecast/compare?product_id=1&warehouse_id=1")
+    assert response.status_code == 200

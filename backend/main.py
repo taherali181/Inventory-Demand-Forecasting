@@ -1,17 +1,32 @@
 # main.py
-import logging
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from config import CORS_ALLOWED_ORIGINS
+from logging_config import configure_logging
 from rate_limit import limiter
-from routers import alerts, auth, eda, forecast, products, purchase_orders, stock, suppliers, upload, warehouses
+from routers import (
+    alerts,
+    auth,
+    dashboard,
+    eda,
+    forecast,
+    health,
+    products,
+    purchase_orders,
+    reorder,
+    stock,
+    suppliers,
+    upload,
+    users,
+    warehouses,
+)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+configure_logging()
 
 # Schema is managed by Alembic now (backend/alembic/), not Base.metadata.
 # create_all() here — run `alembic upgrade head` before starting the app
@@ -47,3 +62,11 @@ app.include_router(products.router)
 app.include_router(stock.router)
 app.include_router(alerts.router)
 app.include_router(purchase_orders.router)
+app.include_router(reorder.router)
+app.include_router(users.router)
+app.include_router(dashboard.router)
+app.include_router(health.router)
+
+# Exposes GET /metrics in Prometheus exposition format (request counts,
+# latencies, etc.) — one line, no per-endpoint instrumentation needed.
+Instrumentator().instrument(app).expose(app)

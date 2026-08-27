@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import DataTable from '../components/DataTable';
 import LoadMoreButton from '../components/LoadMoreButton';
 import { createSupplier, deactivateSupplier, listSuppliers, updateSupplier } from '../api/suppliers';
+import useDebouncedValue from '../hooks/useDebouncedValue';
 import usePaginatedList from '../hooks/usePaginatedList';
 import { useAuth } from '../context/AuthContext';
 
@@ -19,9 +20,11 @@ function SuppliersPage() {
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput);
   const { items, total, isLoading, error, reload, loadMore, hasMore } = usePaginatedList(
-    ({ skip, limit }) => listSuppliers(false, { skip, limit }),
-    []
+    ({ skip, limit }) => listSuppliers(false, { skip, limit, search }),
+    [search]
   );
 
   const handleSubmit = async (event) => {
@@ -138,9 +141,23 @@ function SuppliersPage() {
         <p className="hint">Log in to add or manage suppliers.</p>
       )}
 
+      <div className="inline-form">
+        <label htmlFor="supplier_search" className="sr-only">Search suppliers</label>
+        <input
+          id="supplier_search"
+          placeholder="Search by name…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+      </div>
+
       {formError && <p className="form-error">{formError}</p>}
       {error && <p className="form-error">{error}</p>}
-      {isLoading && items.length === 0 ? <p>Loading…</p> : <DataTable columns={columns} rows={items} />}
+      {isLoading && items.length === 0 ? (
+        <p>Loading…</p>
+      ) : (
+        <DataTable columns={columns} rows={items} emptyMessage={search ? 'No matching suppliers.' : 'No records yet.'} />
+      )}
       <LoadMoreButton items={items} total={total} hasMore={hasMore} isLoading={isLoading} onLoadMore={loadMore} />
     </div>
   );

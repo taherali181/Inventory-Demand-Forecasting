@@ -1,8 +1,11 @@
 # routers/purchase_orders.py
+import csv
+import io
 import uuid
 from contextlib import ExitStack
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
@@ -80,15 +83,84 @@ def list_purchase_orders(
         .limit(limit)
         .all()
     ]
+    # No .unique() call needed (or valid) here: that's a Result-object
+    # method from the 2.0-style select()/session.execute() API, which the
+    # legacy db.query(...) Query object here doesn't have — calling it
+    # raises AttributeError (a real bug this endpoint shipped with for a
+    # while; caught once a test finally exercised this endpoint directly).
+    # Query.all() already de-duplicates parent entities from a joinedload
+    # collection on its own — one PurchaseOrder per id in page_ids, not one
+    # per PurchaseOrder-item pair, confirmed via a direct check.
     items = (
         db.query(PurchaseOrder)
         .options(joinedload(PurchaseOrder.items))
         .filter(PurchaseOrder.id.in_(page_ids))
         .order_by(PurchaseOrder.created_at.desc())
-        .unique()
         .all()
     )
     return PaginatedResponse(items=items, total=total)
+
+
+_EXPORT_COLUMNS = [
+    "po_number",
+    "status",
+    "supplier_id",
+    "warehouse_id",
+    "order_date",
+    "expected_delivery_date",
+    "product_id",
+    "quantity_ordered",
+    "quantity_received",
+    "unit_cost",
+]
+
+
+@router.get("/export")
+def export_purchase_orders(db: Session = Depends(get_db)):
+    """Streams every purchase order as CSV, one row per line item (a PO
+    header repeats across its items' rows) — flatter and more directly
+    useful for a spreadsheet than one row per PO with a nested items blob.
+    Declared before GET /{po_id} so "export" isn't swallowed by that route.
+    """
+    orders = (
+        db.query(PurchaseOrder)
+        .options(joinedload(PurchaseOrder.items))
+        .order_by(PurchaseOrder.created_at.desc())
+        .all()
+    )
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=_EXPORT_COLUMNS)
+    writer.writeheader()
+    for po in orders:
+        base_row = {
+            "po_number": po.po_number,
+            "status": po.status.value,
+            "supplier_id": po.supplier_id,
+            "warehouse_id": po.warehouse_id,
+            "order_date": po.order_date,
+            "expected_delivery_date": po.expected_delivery_date,
+        }
+        if not po.items:
+            writer.writerow(base_row)
+            continue
+        for item in po.items:
+            writer.writerow(
+                {
+                    **base_row,
+                    "product_id": item.product_id,
+                    "quantity_ordered": item.quantity_ordered,
+                    "quantity_received": item.quantity_received,
+                    "unit_cost": item.unit_cost,
+                }
+            )
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=purchase_orders.csv"},
+    )
 
 
 @router.post("", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED)

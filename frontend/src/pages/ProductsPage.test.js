@@ -97,6 +97,34 @@ test('shows an error message when deactivating a product fails', async () => {
   await waitFor(() => expect(screen.getByText('Not allowed.')).toBeInTheDocument());
 });
 
+test('typing in the search box re-fetches with a debounced search param', async () => {
+  productsApi.listProducts.mockResolvedValue({
+    items: [{ id: 1, sku_code: 'SKU-1', name: 'Widget', category: 'Tools', reorder_point: 5, unit_price: 9.99 }],
+    total: 1,
+  });
+  renderPage();
+  await waitFor(() => expect(screen.getByText('Widget')).toBeInTheDocument());
+  expect(productsApi.listProducts).toHaveBeenLastCalledWith(false, expect.objectContaining({ search: '' }));
+
+  await userEvent.type(screen.getByLabelText(/search products/i), 'wid');
+
+  // Debounced — the call with the new search term lands after a short
+  // delay (Change 11.4's useDebouncedValue), not on every keystroke.
+  await waitFor(() =>
+    expect(productsApi.listProducts).toHaveBeenLastCalledWith(false, expect.objectContaining({ search: 'wid' }))
+  );
+});
+
+test('the Export CSV link points at the backend export endpoint', async () => {
+  productsApi.listProducts.mockResolvedValue({ items: [], total: 0 });
+  productsApi.productsExportUrl.mockReturnValue('http://127.0.0.1:8000/products/export');
+  renderPage();
+  await waitFor(() => expect(screen.getByText(/no records yet/i)).toBeInTheDocument());
+
+  const link = screen.getByRole('link', { name: /export csv/i });
+  expect(link).toHaveAttribute('href', expect.stringContaining('/products/export'));
+});
+
 test('clicking Edit pre-fills the form and submitting calls updateProduct', async () => {
   productsApi.listProducts.mockResolvedValue({
     items: [{ id: 1, sku_code: 'SKU-1', name: 'Widget', category: 'Tools', reorder_point: 5, unit_price: 9.99 }],

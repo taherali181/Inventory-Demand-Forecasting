@@ -138,6 +138,111 @@ def test_stock_movements_filters_by_product_and_warehouse(db_session):
     assert unfiltered["total"] == 2
 
 
+def test_products_search_matches_name_or_sku_case_insensitively(db_session):
+    headers = _auth_headers(db_session, "search@example.com", "testpass123")
+    client.post("/products", json={"sku_code": "ABC-1", "name": "Red Widget"}, headers=headers)
+    client.post("/products", json={"sku_code": "XYZ-2", "name": "Blue Gadget"}, headers=headers)
+
+    by_name = client.get("/products?search=widget").json()
+    assert by_name["total"] == 1
+    assert by_name["items"][0]["sku_code"] == "ABC-1"
+
+    by_sku = client.get("/products?search=xyz").json()
+    assert by_sku["total"] == 1
+    assert by_sku["items"][0]["name"] == "Blue Gadget"
+
+    no_match = client.get("/products?search=nonexistent").json()
+    assert no_match["total"] == 0
+
+
+def test_warehouses_and_suppliers_search_by_name(db_session):
+    headers = _auth_headers(db_session, "search2@example.com", "testpass123")
+    client.post("/warehouses", json={"name": "North Distribution Center", "code": "NDC"}, headers=headers)
+    client.post("/warehouses", json={"name": "South Depot", "code": "SD"}, headers=headers)
+    client.post("/suppliers", json={"name": "Acme Supply Co"}, headers=headers)
+    client.post("/suppliers", json={"name": "Global Parts"}, headers=headers)
+
+    warehouses = client.get("/warehouses?search=north").json()
+    assert warehouses["total"] == 1
+    assert warehouses["items"][0]["code"] == "NDC"
+
+    suppliers = client.get("/suppliers?search=acme").json()
+    assert suppliers["total"] == 1
+    assert suppliers["items"][0]["name"] == "Acme Supply Co"
+
+
+def test_products_export_returns_csv_with_expected_rows(db_session):
+    headers = _auth_headers(db_session, "export@example.com", "testpass123")
+    client.post("/products", json={"sku_code": "EXP-1", "name": "Exportable Widget"}, headers=headers)
+    client.post("/products", json={"sku_code": "EXP-2", "name": "Another Widget"}, headers=headers)
+    deactivated = client.post("/products", json={"sku_code": "EXP-3", "name": "Inactive Widget"}, headers=headers).json()
+    client.delete(f"/products/{deactivated['id']}", headers=headers)
+
+    response = client.get("/products/export")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=products.csv" in response.headers["content-disposition"]
+
+    lines = response.text.strip().splitlines()
+    assert lines[0].split(",")[0:3] == ["id", "sku_code", "name"]
+    # Default excludes the deactivated product, same as GET /products.
+    assert "EXP-1" in response.text
+    assert "EXP-2" in response.text
+    assert "EXP-3" not in response.text
+
+    with_inactive = client.get("/products/export?include_inactive=true")
+    assert "EXP-3" in with_inactive.text
+
+
+def test_products_export_route_is_not_shadowed_by_product_id_route(db_session):
+    # "/products/export" must not be captured by GET /products/{product_id}
+    # (which would try to parse "export" as an int product_id and 422) —
+    # regression guard for the declaration-order fix this route needed.
+    response = client.get("/products/export")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+
+
+def test_purchase_orders_export_returns_one_row_per_line_item(db_session):
+    headers = _auth_headers(db_session, "po-export@example.com", "testpass123")
+    supplier = client.post("/suppliers", json={"name": "Acme"}, headers=headers).json()
+    warehouse = client.post("/warehouses", json={"name": "W1", "code": "W1"}, headers=headers).json()
+    p1 = client.post("/products", json={"sku_code": "PO-EXP-1", "name": "A"}, headers=headers).json()
+    p2 = client.post("/products", json={"sku_code": "PO-EXP-2", "name": "B"}, headers=headers).json()
+
+    client.post(
+        "/purchase-orders",
+        json={
+            "supplier_id": supplier["id"],
+            "warehouse_id": warehouse["id"],
+            "items": [
+                {"product_id": p1["id"], "quantity_ordered": 5, "unit_cost": 1.5},
+                {"product_id": p2["id"], "quantity_ordered": 3, "unit_cost": 2.0},
+            ],
+        },
+        headers=headers,
+    )
+
+    response = client.get("/purchase-orders/export")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+
+    lines = response.text.strip().splitlines()
+    assert lines[0].split(",") == [
+        "po_number",
+        "status",
+        "supplier_id",
+        "warehouse_id",
+        "order_date",
+        "expected_delivery_date",
+        "product_id",
+        "quantity_ordered",
+        "quantity_received",
+        "unit_cost",
+    ]
+    assert len(lines) == 3  # header + one row per line item, not one per PO
+
+
 def test_stock_adjust_requires_auth(db_session):
     response = client.post(
         "/stock/adjust", json={"product_id": 1, "warehouse_id": 1, "quantity_delta": 1}

@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ForecastChart from '../components/ForecastChart';
 import LoadMoreButton from '../components/LoadMoreButton';
-import { createForecast, getForecastRun, listForecastRuns } from '../api/forecast';
+import { compareForecastRuns, createForecast, getForecastRun, listForecastRuns } from '../api/forecast';
 import { listProducts } from '../api/products';
 import { listWarehouses } from '../api/warehouses';
 import usePaginatedList from '../hooks/usePaginatedList';
@@ -30,6 +30,10 @@ function ForecastPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
   const [pastRunsError, setPastRunsError] = useState(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareRuns, setCompareRuns] = useState([]);
+  const [compareError, setCompareError] = useState(null);
+  const [compareLoading, setCompareLoading] = useState(false);
   const cancelledRef = useRef(false);
 
   useEffect(() => () => {
@@ -69,6 +73,24 @@ function ForecastPage() {
     [productId, warehouseId]
   );
 
+  const loadComparison = useCallback(async () => {
+    if (!productId || !warehouseId) return;
+    setCompareLoading(true);
+    setCompareError(null);
+    try {
+      const runs = await compareForecastRuns({ productId: Number(productId), warehouseId: Number(warehouseId) });
+      setCompareRuns(runs);
+    } catch (err) {
+      setCompareError(err.response?.data?.detail || 'Could not load model comparison.');
+    } finally {
+      setCompareLoading(false);
+    }
+  }, [productId, warehouseId]);
+
+  useEffect(() => {
+    if (compareMode) loadComparison();
+  }, [compareMode, loadComparison]);
+
   const pollUntilDone = async (runId) => {
     const startedAt = Date.now();
     setStatusMessage('Training model…');
@@ -80,6 +102,7 @@ function ForecastPage() {
         setResult(run);
         setStatusMessage(null);
         reloadPastRuns();
+        if (compareMode) loadComparison();
         return;
       }
       if (run.status === 'failed') {
@@ -184,6 +207,32 @@ function ForecastPage() {
             {result.mae != null ? result.mae.toFixed(2) : '—'}
           </p>
           <ForecastChart predictions={result.predictions} />
+        </div>
+      )}
+
+      {productId && warehouseId && (
+        <div className="forecast-compare">
+          <label>
+            <input type="checkbox" checked={compareMode} onChange={(e) => setCompareMode(e.target.checked)} />
+            {' '}Compare all trained models for this product/warehouse
+          </label>
+          {compareMode && (
+            <>
+              {compareError && <p className="form-error">{compareError}</p>}
+              {compareLoading ? (
+                <p>Loading…</p>
+              ) : compareRuns.length === 0 ? (
+                <p className="hint">No completed runs yet for any model type.</p>
+              ) : (
+                <ForecastChart
+                  runs={compareRuns.map((run) => ({
+                    label: `${run.model_type} (RMSE ${run.rmse != null ? run.rmse.toFixed(2) : '—'})`,
+                    predictions: run.predictions,
+                  }))}
+                />
+              )}
+            </>
+          )}
         </div>
       )}
 

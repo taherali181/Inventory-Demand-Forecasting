@@ -45,6 +45,10 @@ class UserRead(BaseModel):
     created_at: dt.datetime
 
 
+class UserRoleUpdate(BaseModel):
+    role: UserRole
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
@@ -318,3 +322,44 @@ class UploadAcceptedRead(BaseModel):
     status: str
     uploaded_at: dt.datetime
     validation_summary: Optional[dict] = None
+
+
+class UploadHistoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    uploaded_by: Optional[int]
+    row_count: int
+    status: str
+    error_message: Optional[str]
+    uploaded_at: dt.datetime
+    validation_summary: Optional[dict] = None
+
+
+class ReorderSuggestion(BaseModel):
+    product_id: int
+    warehouse_id: int
+    current_stock: int
+    forecasted_demand: float
+    reorder_point: int
+    suggested_order_quantity: int
+    forecast_run_id: int
+
+
+class DashboardKpis(BaseModel):
+    period_days: int
+    total_sales_in_period: float
+    total_quantity_on_hand: int
+    # None when there's no stock on hand to divide by — not a meaningful
+    # "0" in that case, a genuinely undefined ratio.
+    inventory_turnover: Optional[float]
+    # None when there are no stock_levels rows at all yet.
+    stockout_rate: Optional[float]
+    stockout_count: int
+    stock_level_count: int
+    # None when no forecast prediction has a matching actual sales_records
+    # row yet (forecast_sample_size == 0).
+    forecast_mae: Optional[float]
+    forecast_mape: Optional[float]
+    forecast_sample_size: int

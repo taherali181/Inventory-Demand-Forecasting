@@ -1,5 +1,10 @@
 # routers/products.py
+import csv
+import io
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -18,6 +23,7 @@ def _validate_supplier(db: Session, supplier_id: int) -> None:
 @router.get("", response_model=PaginatedResponse[ProductRead])
 def list_products(
     include_inactive: bool = False,
+    search: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
@@ -25,9 +31,54 @@ def list_products(
     query = db.query(Product)
     if not include_inactive:
         query = query.filter(Product.is_active.is_(True))
+    if search:
+        # Case-insensitive substring match on name or SKU — simple LIKE,
+        # not full-text search infrastructure, which this data scale
+        # doesn't need.
+        pattern = f"%{search}%"
+        query = query.filter(Product.name.ilike(pattern) | Product.sku_code.ilike(pattern))
     total = query.count()
     items = query.order_by(Product.name).offset(skip).limit(limit).all()
     return PaginatedResponse(items=items, total=total)
+
+
+_EXPORT_COLUMNS = [
+    "id",
+    "sku_code",
+    "name",
+    "category",
+    "unit_of_measure",
+    "unit_cost",
+    "unit_price",
+    "reorder_point",
+    "safety_stock",
+    "reorder_quantity",
+    "is_active",
+]
+
+
+@router.get("/export")
+def export_products(include_inactive: bool = False, db: Session = Depends(get_db)):
+    """Streams every product as CSV (stdlib csv module — no new dependency,
+    no matplotlib/reportlab-weight PDF rendering for what's fundamentally
+    tabular data). Declared before GET /{product_id} so "export" isn't
+    swallowed by that route and treated as an invalid product_id."""
+    query = db.query(Product)
+    if not include_inactive:
+        query = query.filter(Product.is_active.is_(True))
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=_EXPORT_COLUMNS)
+    writer.writeheader()
+    for product in query.order_by(Product.name).all():
+        writer.writerow({col: getattr(product, col) for col in _EXPORT_COLUMNS})
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=products.csv"},
+    )
 
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)

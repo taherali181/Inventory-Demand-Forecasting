@@ -5,7 +5,13 @@ import { listWarehouses } from '../api/warehouses';
 
 const emptyLine = { product_id: '', quantity_ordered: 1, unit_cost: 0 };
 
-function POForm({ onSubmit }) {
+/** `initialItem` (optional): `{ productId, warehouseId, quantityOrdered }`
+ * — pre-fills the form's warehouse and first line item, used by
+ * ReorderSuggestionsPage's "Create PO" action (Change 11.2) so a suggested
+ * reorder doesn't have to be re-entered by hand. Applied once, when the
+ * dropdown data finishes loading — a later prop change doesn't re-apply it,
+ * since by then the user may have already started editing the form. */
+function POForm({ onSubmit, initialItem }) {
   const [suppliers, setSuppliers] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
@@ -22,12 +28,31 @@ function POForm({ onSubmit }) {
     });
     listWarehouses(false, { limit: 200 }).then((data) => {
       setWarehouses(data.items);
-      if (data.items.length > 0) setWarehouseId(String(data.items[0].id));
+      const preferred = initialItem?.warehouseId != null ? String(initialItem.warehouseId) : null;
+      if (preferred && data.items.some((w) => String(w.id) === preferred)) {
+        setWarehouseId(preferred);
+      } else if (data.items.length > 0) {
+        setWarehouseId(String(data.items[0].id));
+      }
     });
     listProducts(false, { limit: 200 }).then((data) => {
       setProducts(data.items);
-      setItems([{ ...emptyLine, product_id: data.items.length > 0 ? String(data.items[0].id) : '' }]);
+      const preferredProduct = initialItem?.productId != null ? String(initialItem.productId) : null;
+      const productId =
+        preferredProduct && data.items.some((p) => String(p.id) === preferredProduct)
+          ? preferredProduct
+          : data.items.length > 0
+          ? String(data.items[0].id)
+          : '';
+      setItems([
+        {
+          ...emptyLine,
+          product_id: productId,
+          quantity_ordered: initialItem?.quantityOrdered ?? emptyLine.quantity_ordered,
+        },
+      ]);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateItem = (index, field, value) => {

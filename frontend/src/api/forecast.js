@@ -21,3 +21,10 @@ export function listForecastRuns({ productId, warehouseId, skip = 0, limit = 50 
     .get('/forecast', { params: { product_id: productId, warehouse_id: warehouseId, skip, limit } })
     .then((res) => res.data);
 }
+
+// Returns a plain array (not paginated) — at most one run per model type.
+export function compareForecastRuns({ productId, warehouseId }) {
+  return client
+    .get('/forecast/compare', { params: { product_id: productId, warehouse_id: warehouseId } })
+    .then((res) => res.data);
+}

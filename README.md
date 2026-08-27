@@ -89,11 +89,15 @@ All endpoints are documented interactively at `/docs`. Broad strokes:
 | Area | Endpoints |
 |---|---|
 | Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` |
-| Upload/EDA | `POST /upload`, `GET /eda` |
-| Inventory | `GET/POST/PUT/DELETE /warehouses`, `/suppliers`, `/products`; `GET /stock`, `POST /stock/adjust`, `GET /stock/movements` |
-| Alerts | `GET /alerts`, `POST /alerts/recompute` |
-| Purchase orders | `GET/POST /purchase-orders`, `PUT /purchase-orders/{id}/status`, `POST /purchase-orders/{id}/receive` |
-| Forecast | `POST /forecast`, `GET /forecast`, `GET /forecast/{id}` |
+| Upload/EDA | `POST /upload`, `GET /upload/history`, `GET /eda` |
+| Inventory | `GET/POST/PUT/DELETE /warehouses`, `/suppliers`, `/products` (each supports `?search=`); `GET /products/export`; `GET /stock`, `POST /stock/adjust`, `GET /stock/movements` |
+| Alerts | `GET /alerts`, `POST /alerts/recompute` (optionally emails `ALERT_NOTIFICATION_EMAILS` on newly-opened alerts) |
+| Purchase orders | `GET/POST /purchase-orders`, `PUT /purchase-orders/{id}/status`, `POST /purchase-orders/{id}/receive`, `GET /purchase-orders/export` |
+| Forecast | `POST /forecast`, `GET /forecast`, `GET /forecast/{id}`, `GET /forecast/compare` |
+| Reorder | `GET /reorder/suggestions` |
+| Dashboard | `GET /dashboard/kpis` |
+| Users (admin) | `GET /users`, `PATCH /users/{id}/role`, `PATCH /users/{id}/deactivate` |
+| Ops | `GET /health`, `GET /metrics` |
 
 ## License
 

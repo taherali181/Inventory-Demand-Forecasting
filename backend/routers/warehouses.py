@@ -1,4 +1,6 @@
 # routers/warehouses.py
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,7 @@ router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 @router.get("", response_model=PaginatedResponse[WarehouseRead])
 def list_warehouses(
     include_inactive: bool = False,
+    search: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
@@ -20,6 +23,8 @@ def list_warehouses(
     query = db.query(Warehouse)
     if not include_inactive:
         query = query.filter(Warehouse.is_active.is_(True))
+    if search:
+        query = query.filter(Warehouse.name.ilike(f"%{search}%"))
     total = query.count()
     items = query.order_by(Warehouse.name).offset(skip).limit(limit).all()
     return PaginatedResponse(items=items, total=total)

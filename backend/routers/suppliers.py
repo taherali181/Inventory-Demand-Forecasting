@@ -1,4 +1,6 @@
 # routers/suppliers.py
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,7 @@ router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 @router.get("", response_model=PaginatedResponse[SupplierRead])
 def list_suppliers(
     include_inactive: bool = False,
+    search: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
@@ -20,6 +23,8 @@ def list_suppliers(
     query = db.query(Supplier)
     if not include_inactive:
         query = query.filter(Supplier.is_active.is_(True))
+    if search:
+        query = query.filter(Supplier.name.ilike(f"%{search}%"))
     total = query.count()
     items = query.order_by(Supplier.name).offset(skip).limit(limit).all()
     return PaginatedResponse(items=items, total=total)
