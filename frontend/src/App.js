@@ -6,8 +6,11 @@ import { AuthProvider } from './context/AuthContext';
 import DashboardPage from './pages/DashboardPage';
 import EdaPage from './pages/EdaPage';
 import ForecastPage from './pages/ForecastPage';
+import AlertsPage from './pages/AlertsPage';
 import LoginPage from './pages/LoginPage';
 import ProductsPage from './pages/ProductsPage';
+import PurchaseOrderDetailPage from './pages/PurchaseOrderDetailPage';
+import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
 import RegisterPage from './pages/RegisterPage';
 import StockPage from './pages/StockPage';
 import SuppliersPage from './pages/SuppliersPage';
@@ -30,6 +33,9 @@ function App() {
               <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/stock" element={<StockPage />} />
+              <Route path="/alerts" element={<AlertsPage />} />
+              <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
+              <Route path="/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
             </Routes>

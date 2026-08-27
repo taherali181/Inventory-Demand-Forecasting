@@ -35,6 +35,12 @@ function Navbar() {
         <NavLink to="/stock" className={linkClass}>
           Stock
         </NavLink>
+        <NavLink to="/alerts" className={linkClass}>
+          Alerts
+        </NavLink>
+        <NavLink to="/purchase-orders" className={linkClass}>
+          Purchase orders
+        </NavLink>
       </div>
       <div className="navbar-auth">
         {user ? (

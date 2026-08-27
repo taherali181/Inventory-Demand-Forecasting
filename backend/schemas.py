@@ -2,14 +2,14 @@
 """Pydantic request/response models.
 
 Grows alongside the routers that use them — see models.py for the underlying
-ORM schema this mirrors. Purchase-order/alert schemas land in Phase 4.
+ORM schema this mirrors.
 """
 import datetime as dt
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from models import MovementType, UserRole
+from models import AlertStatus, MovementType, PurchaseOrderStatus, UserRole
 
 # bcrypt's own hard limit is 72 bytes; enforcing it here gives a clean 422
 # instead of a 500 out of auth.hash_password().
@@ -162,3 +162,69 @@ class StockAdjustment(BaseModel):
     movement_type: MovementType = MovementType.adjustment
     reference_type: Optional[str] = None
     reference_id: Optional[int] = None
+
+
+class AlertRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    warehouse_id: int
+    alert_type: str
+    threshold_value: float
+    current_value: float
+    status: AlertStatus
+    created_at: dt.datetime
+    resolved_at: Optional[dt.datetime]
+
+
+class PurchaseOrderItemCreate(BaseModel):
+    product_id: int
+    quantity_ordered: int = Field(gt=0)
+    unit_cost: float = 0.0
+
+
+class PurchaseOrderItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    quantity_ordered: int
+    quantity_received: int
+    unit_cost: float
+
+
+class PurchaseOrderCreate(BaseModel):
+    supplier_id: int
+    warehouse_id: int
+    order_date: Optional[dt.date] = None
+    expected_delivery_date: Optional[dt.date] = None
+    items: List[PurchaseOrderItemCreate]
+
+
+class PurchaseOrderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    po_number: str
+    supplier_id: int
+    warehouse_id: int
+    status: PurchaseOrderStatus
+    order_date: Optional[dt.date]
+    expected_delivery_date: Optional[dt.date]
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    items: List[PurchaseOrderItemRead]
+
+
+class PurchaseOrderStatusUpdate(BaseModel):
+    status: PurchaseOrderStatus
+
+
+class PurchaseOrderReceiveItem(BaseModel):
+    product_id: int
+    quantity: int = Field(gt=0)
+
+
+class PurchaseOrderReceive(BaseModel):
+    items: List[PurchaseOrderReceiveItem]
