@@ -1,9 +1,9 @@
 ---
-name: run-inventory-app
-description: Launch and drive this app (FastAPI backend + CRA frontend) for manual testing. Use when asked to run, start, or smoke-test the Inventory Demand Forecasting app, or to confirm a change works end-to-end (not just pytest/npm test).
+name: run-restock-app
+description: Launch and drive this app (FastAPI backend + CRA frontend) for manual testing. Use when asked to run, start, or smoke-test the Restock app, or to confirm a change works end-to-end (not just pytest/npm test).
 ---
 
-# Run: Inventory Demand Forecasting
+# Run: Restock
 
 Two separate apps talking over HTTP/CORS: FastAPI backend (`backend/`, port 8000) and
 CRA React frontend (`frontend/`, port 3000). Both must be running to test anything through the UI;
@@ -72,12 +72,12 @@ Background-launch both (they must stay up while you test):
 
 ```bash
 cd backend
-nohup python3 -m uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/inventory-backend.log 2>&1 &
+nohup python3 -m uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/restock-backend.log 2>&1 &
 disown
 BACKEND_PID=$!
 
 cd ../frontend
-BROWSER=none nohup npm start > /tmp/inventory-frontend.log 2>&1 &
+BROWSER=none nohup npm start > /tmp/restock-frontend.log 2>&1 &
 disown
 FRONTEND_PID=$!
 ```
@@ -95,7 +95,7 @@ curl -s http://localhost:3000 | grep -o '<title>[^<]*</title>'
 ```
 
 `GET /docs` (interactive Swagger UI) is the quickest backend health check. For the frontend, "ready"
-is `webpack compiled successfully` in `/tmp/inventory-frontend.log`.
+is `webpack compiled successfully` in `/tmp/restock-frontend.log`.
 
 No login is needed to view data (GET routes are open). Register a user at
 `http://localhost:3000/register` (or `POST /auth/register`) to test write actions — the backend gates

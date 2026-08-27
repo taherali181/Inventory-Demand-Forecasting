@@ -21,7 +21,7 @@ DEFAULT_JWT_SECRET_KEY = "dev-secret-change-me"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    database_url: str = f"sqlite:///{DATA_DIR / 'inventory.db'}"
+    database_url: str = f"sqlite:///{DATA_DIR / 'restock.db'}"
     jwt_secret_key: str = DEFAULT_JWT_SECRET_KEY  # MUST be overridden outside local development
     cors_allowed_origins: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 

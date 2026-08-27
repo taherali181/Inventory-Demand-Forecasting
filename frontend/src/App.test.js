@@ -3,7 +3,7 @@ import App from './App';
 
 test('renders the navbar brand', () => {
   render(<App />);
-  expect(screen.getByText(/inventory forecasting/i)).toBeInTheDocument();
+  expect(screen.getByText(/restock/i)).toBeInTheDocument();
 });
 
 test('renders the dashboard by default', () => {

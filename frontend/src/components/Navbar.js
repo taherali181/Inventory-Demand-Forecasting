@@ -9,7 +9,7 @@ function Navbar() {
 
   return (
     <nav className="navbar">
-      <span className="navbar-brand">Inventory Forecasting</span>
+      <span className="navbar-brand">Restock</span>
       <div className="navbar-links">
         <NavLink to="/" end className={linkClass}>
           Dashboard

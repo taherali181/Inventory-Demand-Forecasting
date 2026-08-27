@@ -1,4 +1,4 @@
-# Inventory Demand Forecasting
+# Restock
 
 A FastAPI + React inventory management app: track warehouses, suppliers, products, and stock levels; get
 low-stock alerts; run purchase orders through receiving; and forecast future demand per product/warehouse

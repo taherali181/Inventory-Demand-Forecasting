@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: sqlite:///./data/inventory.db
+      DATABASE_URL: sqlite:///./data/restock.db
       JWT_SECRET_KEY: change-me-in-production
     volumes:
       - backend_data:/app/backend/data

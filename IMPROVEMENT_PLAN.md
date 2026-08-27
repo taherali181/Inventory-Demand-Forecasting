@@ -1,6 +1,6 @@
-# Inventory-Demand-Forecasting: Phase 7-11 Improvement Roadmap
+# Restock: Phase 7-11 Improvement Roadmap
 
-This document is a phased implementation plan for the next round of improvements to the Inventory Demand Forecasting app (FastAPI + SQLAlchemy backend, React 18 frontend). Phases 0-6 (initial CRUD, auth, forecasting, EDA, alerts, purchase orders) are complete and in production use at portfolio scale; this roadmap picks up from there and addresses the security, performance, architecture, UX, and feature gaps identified in a full code audit of the current codebase. Every change below is scoped for a solo developer working incrementally, not a team-scale enterprise rewrite.
+This document is a phased implementation plan for the next round of improvements to the Restock app (FastAPI + SQLAlchemy backend, React 18 frontend). Phases 0-6 (initial CRUD, auth, forecasting, EDA, alerts, purchase orders) are complete and in production use at portfolio scale; this roadmap picks up from there and addresses the security, performance, architecture, UX, and feature gaps identified in a full code audit of the current codebase. Every change below is scoped for a solo developer working incrementally, not a team-scale enterprise rewrite.
 
 ---
 
@@ -90,7 +90,7 @@ These issues surface under concurrent/real-world load: synchronous ML training a
 - **Files:** `requirements.txt`, `backend/alembic.ini` (new), `backend/alembic/env.py` (new), `backend/alembic/versions/0001_baseline.py` (new), `backend/main.py`, `.github/workflows/backend-ci.yml`, `docker-compose.yml`
 - **Issue(s):** #15
 - **Effort:** M
-- **Approach:** Add `alembic==1.13.x`. Run `alembic init alembic` under `backend/`, point `env.py`'s `target_metadata` at `Base.metadata`, and set `sqlalchemy.url` from `config.settings.database_url` at runtime. Generate a baseline migration via `--autogenerate` so it's a no-op on existing DBs (document `alembic stamp head` for anyone with an existing `inventory.db`). Remove `Base.metadata.create_all(bind=engine)` from `backend/main.py:18` and replace with `alembic upgrade head` in the Docker entrypoint/CI. Update `backend-ci.yml` to run migrations before pytest, and `docker-compose.yml`'s backend command likewise.
+- **Approach:** Add `alembic==1.13.x`. Run `alembic init alembic` under `backend/`, point `env.py`'s `target_metadata` at `Base.metadata`, and set `sqlalchemy.url` from `config.settings.database_url` at runtime. Generate a baseline migration via `--autogenerate` so it's a no-op on existing DBs (document `alembic stamp head` for anyone with an existing `restock.db`). Remove `Base.metadata.create_all(bind=engine)` from `backend/main.py:18` and replace with `alembic upgrade head` in the Docker entrypoint/CI. Update `backend-ci.yml` to run migrations before pytest, and `docker-compose.yml`'s backend command likewise.
 - **Tests:** CI check that `alembic upgrade head` + `--autogenerate` produces no diff. Keep `conftest.py`'s `db_session` fixture on `create_all` for test speed (documented divergence from the real app's migration path).
 - **Dependencies:** None, but sequence first within Phase 8 — several later changes (7.3's `RefreshToken` table, 8.8's indexes) need this.
 

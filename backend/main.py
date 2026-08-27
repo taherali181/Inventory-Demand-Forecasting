@@ -35,7 +35,7 @@ configure_logging()
 # using create_all() against an isolated per-test SQLite file for speed —
 # a documented divergence from how the real app initializes its schema).
 
-app = FastAPI(title="Inventory Forecasting API")
+app = FastAPI(title="Restock API")
 
 app.add_middleware(
     CORSMiddleware,
