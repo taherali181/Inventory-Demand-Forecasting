@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from models import AlertStatus, MovementType, PurchaseOrderStatus, UserRole
+from models import AlertStatus, ForecastStatus, MovementType, PurchaseOrderStatus, UserRole
 
 # bcrypt's own hard limit is 72 bytes; enforcing it here gives a clean 422
 # instead of a 500 out of auth.hash_password().
@@ -228,3 +228,32 @@ class PurchaseOrderReceiveItem(BaseModel):
 
 class PurchaseOrderReceive(BaseModel):
     items: List[PurchaseOrderReceiveItem]
+
+
+class ForecastRequest(BaseModel):
+    product_id: int
+    warehouse_id: int
+    model_type: str = "random_forest"
+    forecast_horizon: int = Field(default=7, gt=0, le=365)
+
+
+class ForecastPredictionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    forecast_date: dt.date
+    predicted_sales: float
+
+
+class ForecastRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: Optional[int]
+    warehouse_id: Optional[int]
+    model_type: str
+    forecast_horizon: int
+    trained_at: dt.datetime
+    rmse: Optional[float]
+    mae: Optional[float]
+    status: ForecastStatus
+    predictions: List[ForecastPredictionRead]

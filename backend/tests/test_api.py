@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
+from models import Product, Warehouse
 
 client = TestClient(app)
 
@@ -35,11 +36,6 @@ def isolate_data_path(tmp_path, monkeypatch, db_session):
     app.state.data_path = None
 
 
-def test_forecast_before_upload_returns_404():
-    response = client.get("/forecast")
-    assert response.status_code == 404
-
-
 def test_eda_before_upload_returns_404():
     response = client.get("/eda")
     assert response.status_code == 404
@@ -57,7 +53,7 @@ def test_upload_rejects_missing_columns():
     assert "missing required columns" in response.json()["detail"]
 
 
-def test_upload_then_forecast_and_eda():
+def test_upload_and_eda():
     csv_bytes = _sample_csv_bytes(rows=20)
 
     upload_response = client.post("/upload", files={"file": ("sales.csv", csv_bytes, "text/csv")})
@@ -66,15 +62,51 @@ def test_upload_then_forecast_and_eda():
     assert "eda" in body
     assert "summary_statistics" in body["eda"]
 
-    forecast_response = client.get("/forecast?forecast_horizon=7")
-    assert forecast_response.status_code == 200
-    forecast_body = forecast_response.json()
-    assert forecast_body["forecast_horizon"] == 7
-    assert len(forecast_body["predictions"]) > 0
-
     eda_response = client.get("/eda")
     assert eda_response.status_code == 200
     assert "sales_trend_image" in eda_response.json()
+
+
+def _single_product_csv_bytes(rows: int = 15) -> bytes:
+    """Unlike _sample_csv_bytes, keeps store/item constant so every row lands
+    on the same (product, warehouse) pair — enough history for a real
+    forecast, which needs >= forecasting.MIN_HISTORY_ROWS rows per pair."""
+    df = pd.DataFrame(
+        {
+            "date": pd.date_range("2023-01-01", periods=rows).strftime("%Y-%m-%d"),
+            "store": [7] * rows,
+            "item": [7] * rows,
+            "sales": [100 + i for i in range(rows)],
+        }
+    )
+    buf = io.BytesIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue()
+
+
+def test_upload_then_forecast_against_the_resulting_product_and_warehouse(db_session):
+    """End-to-end: legacy CSV upload -> ingest.py auto-creates a real
+    warehouse/product -> that product/warehouse now has enough sales_records
+    history to actually forecast against."""
+    csv_bytes = _single_product_csv_bytes(rows=15)
+    upload_response = client.post("/upload", files={"file": ("single.csv", csv_bytes, "text/csv")})
+    assert upload_response.status_code == 200
+    assert upload_response.json()["rows_persisted"] == 15
+
+    db = db_session()
+    try:
+        warehouse = db.query(Warehouse).filter(Warehouse.code == "STORE-7").one()
+        product = db.query(Product).filter(Product.sku_code == "ITEM-7").one()
+        warehouse_id, product_id = warehouse.id, product.id
+    finally:
+        db.close()
+
+    forecast_response = client.post(
+        "/forecast",
+        json={"product_id": product_id, "warehouse_id": warehouse_id, "forecast_horizon": 5},
+    )
+    assert forecast_response.status_code == 201
+    assert len(forecast_response.json()["predictions"]) == 5
 
 
 def test_cors_headers_present_for_allowed_origin():

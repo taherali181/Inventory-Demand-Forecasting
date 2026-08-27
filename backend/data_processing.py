@@ -2,11 +2,10 @@
 import logging
 import time
 
-import holidays
-import numpy as np
 import pandas as pd
 
 from config import PROCESSED_DATA_PATH
+from features import engineer_date_features
 
 logger = logging.getLogger(__name__)
 
@@ -33,31 +32,12 @@ def upload_and_validate_csv(file_obj) -> str:
 
     data = data[REQUIRED_COLUMNS].copy()
 
-    # Split date into year, month, day and rebuild as a real datetime column.
     try:
-        parts = data["date"].str.split("-", n=3, expand=True)
-        data["year"] = parts[0].astype(int)
-        data["month"] = parts[1].astype(int)
-        data["day"] = parts[2].astype(int)
-        data["date"] = pd.to_datetime(data[["year", "month", "day"]])
+        dates = pd.to_datetime(data["date"])
     except Exception as exc:
         raise ValueError(f"Could not parse 'date' column (expected YYYY-MM-DD): {exc}") from exc
 
-    # Weekend flag
-    data["weekend"] = (data["date"].dt.weekday > 4).astype(int)
-
-    # Holiday flag (India calendar — hardcoded for now, see backlog for making this configurable)
-    india_holidays = holidays.country_holidays("IN")
-    data["holidays"] = data["date"].isin(india_holidays).astype(int)
-
-    # Cyclical month encoding
-    data["m1"] = np.sin(data["month"] * (2 * np.pi / 12))
-    data["m2"] = np.cos(data["month"] * (2 * np.pi / 12))
-
-    # Day-of-week
-    data["weekday"] = data["date"].dt.weekday
-
-    data.drop("date", axis=1, inplace=True)
+    data = pd.concat([data.drop(columns=["date"]), engineer_date_features(dates)], axis=1)
 
     PROCESSED_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     data.to_csv(PROCESSED_DATA_PATH, index=False)
