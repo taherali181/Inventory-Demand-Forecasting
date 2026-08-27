@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { adjustStock } from '../api/stock';
 import { listWarehouses } from '../api/warehouses';
 
@@ -8,6 +8,7 @@ function StockAdjustModal({ product, onClose, onAdjusted }) {
   const [quantityDelta, setQuantityDelta] = useState(0);
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const modalRef = useRef(null);
 
   useEffect(() => {
     listWarehouses(false, { limit: 200 }).then((data) => {
@@ -15,6 +16,41 @@ function StockAdjustModal({ product, onClose, onAdjusted }) {
       if (data.items.length > 0) setWarehouseId(String(data.items[0].id));
     });
   }, []);
+
+  // Focus the first focusable element on mount, close on Escape, and trap
+  // Tab/Shift+Tab within the modal's small, fixed set of focusable
+  // elements (select, input, 2 buttons) — a manual trap is reasonable at
+  // this size; no need for a focus-trap dependency.
+  useEffect(() => {
+    const focusable = () =>
+      Array.from(modalRef.current?.querySelectorAll('select, input, button') || []);
+
+    focusable()[0]?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const elements = focusable();
+      if (elements.length === 0) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -37,8 +73,15 @@ function StockAdjustModal({ product, onClose, onAdjusted }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Adjust stock — {product.name}</h2>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stock-adjust-modal-title"
+        ref={modalRef}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="stock-adjust-modal-title">Adjust stock — {product.name}</h2>
         <form className="auth-form" onSubmit={handleSubmit}>
           <label htmlFor="warehouse">Warehouse</label>
           <select id="warehouse" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>

@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ForecastChart from '../components/ForecastChart';
-import { createForecast, getForecastRun } from '../api/forecast';
+import LoadMoreButton from '../components/LoadMoreButton';
+import { createForecast, getForecastRun, listForecastRuns } from '../api/forecast';
 import { listProducts } from '../api/products';
 import { listWarehouses } from '../api/warehouses';
+import usePaginatedList from '../hooks/usePaginatedList';
 
 const MODEL_OPTIONS = [
   { value: 'random_forest', label: 'Random forest' },
@@ -27,6 +29,7 @@ function ForecastPage() {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
+  const [pastRunsError, setPastRunsError] = useState(null);
   const cancelledRef = useRef(false);
 
   useEffect(() => () => {
@@ -35,14 +38,36 @@ function ForecastPage() {
 
   useEffect(() => {
     listProducts().then((data) => {
-      setProducts(data);
-      if (data.length > 0) setProductId(String(data[0].id));
+      setProducts(data.items);
+      if (data.items.length > 0) setProductId(String(data.items[0].id));
     });
     listWarehouses().then((data) => {
-      setWarehouses(data);
-      if (data.length > 0) setWarehouseId(String(data[0].id));
+      setWarehouses(data.items);
+      if (data.items.length > 0) setWarehouseId(String(data.items[0].id));
     });
   }, []);
+
+  // Past runs for the currently-selected product/warehouse pair — lets a
+  // user re-view an earlier run (getForecastRun re-reads it without
+  // retraining) instead of only ever seeing the most recent submission's
+  // result. Refetches whenever the selected product/warehouse changes.
+  const {
+    items: pastRuns,
+    total: pastRunsTotal,
+    isLoading: pastRunsLoading,
+    reload: reloadPastRuns,
+    loadMore: loadMorePastRuns,
+    hasMore: pastRunsHasMore,
+  } = usePaginatedList(
+    ({ skip, limit }) =>
+      listForecastRuns({
+        productId: productId ? Number(productId) : undefined,
+        warehouseId: warehouseId ? Number(warehouseId) : undefined,
+        skip,
+        limit,
+      }),
+    [productId, warehouseId]
+  );
 
   const pollUntilDone = async (runId) => {
     const startedAt = Date.now();
@@ -54,11 +79,13 @@ function ForecastPage() {
       if (run.status === 'completed') {
         setResult(run);
         setStatusMessage(null);
+        reloadPastRuns();
         return;
       }
       if (run.status === 'failed') {
         setError('Forecast training failed — check the backend logs for this run.');
         setStatusMessage(null);
+        reloadPastRuns();
         return;
       }
       // eslint-disable-next-line no-await-in-loop
@@ -91,6 +118,17 @@ function ForecastPage() {
       setStatusMessage(null);
     } finally {
       if (!cancelledRef.current) setIsLoading(false);
+    }
+  };
+
+  const handleViewPastRun = async (runId) => {
+    setPastRunsError(null);
+    setError(null);
+    try {
+      const run = await getForecastRun(runId);
+      setResult(run);
+    } catch (err) {
+      setPastRunsError(err.response?.data?.detail || 'Could not load that run.');
     }
   };
 
@@ -146,6 +184,35 @@ function ForecastPage() {
             {result.mae != null ? result.mae.toFixed(2) : '—'}
           </p>
           <ForecastChart predictions={result.predictions} />
+        </div>
+      )}
+
+      {productId && warehouseId && (
+        <div className="forecast-past-runs">
+          <h2>Past runs</h2>
+          {pastRunsError && <p className="form-error">{pastRunsError}</p>}
+          {pastRunsLoading && pastRuns.length === 0 ? (
+            <p>Loading…</p>
+          ) : pastRuns.length === 0 ? (
+            <p className="hint">No past runs for this product/warehouse yet.</p>
+          ) : (
+            <ul className="forecast-run-list">
+              {pastRuns.map((run) => (
+                <li key={run.id}>
+                  <button type="button" onClick={() => handleViewPastRun(run.id)}>
+                    #{run.id} · {run.model_type} · {run.status} · {new Date(run.trained_at).toLocaleString()}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <LoadMoreButton
+            items={pastRuns}
+            total={pastRunsTotal}
+            hasMore={pastRunsHasMore}
+            isLoading={pastRunsLoading}
+            onLoadMore={loadMorePastRuns}
+          />
         </div>
       )}
     </div>

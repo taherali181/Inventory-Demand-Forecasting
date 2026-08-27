@@ -98,6 +98,45 @@ def test_product_and_stock_adjustment_flow(db_session):
     assert list_response.json()["total"] == 1
     assert len(list_response.json()["items"]) == 1
 
+    # Only the two successful adjustments logged a stock_movements row —
+    # adjust_stock rejects the over-adjustment (delta -100) with 400 before
+    # writing one. GET /stock/movements surfaces that existing audit trail
+    # (Change 10.6).
+    movements = client.get(f"/stock/movements?product_id={product['id']}").json()
+    assert movements["total"] == 2
+    assert sorted(m["quantity_delta"] for m in movements["items"]) == [-5, 20]
+
+
+def test_stock_movements_filters_by_product_and_warehouse(db_session):
+    headers = _auth_headers(db_session, "movements@example.com", "testpass123")
+
+    wh1 = client.post("/warehouses", json={"name": "W1", "code": "W1"}, headers=headers).json()
+    wh2 = client.post("/warehouses", json={"name": "W2", "code": "W2"}, headers=headers).json()
+    p1 = client.post("/products", json={"sku_code": "SKU-A", "name": "A"}, headers=headers).json()
+    p2 = client.post("/products", json={"sku_code": "SKU-B", "name": "B"}, headers=headers).json()
+
+    client.post(
+        "/stock/adjust",
+        json={"product_id": p1["id"], "warehouse_id": wh1["id"], "quantity_delta": 10},
+        headers=headers,
+    )
+    client.post(
+        "/stock/adjust",
+        json={"product_id": p2["id"], "warehouse_id": wh2["id"], "quantity_delta": 5},
+        headers=headers,
+    )
+
+    by_product = client.get(f"/stock/movements?product_id={p1['id']}").json()
+    assert by_product["total"] == 1
+    assert by_product["items"][0]["product_id"] == p1["id"]
+
+    by_warehouse = client.get(f"/stock/movements?warehouse_id={wh2['id']}").json()
+    assert by_warehouse["total"] == 1
+    assert by_warehouse["items"][0]["warehouse_id"] == wh2["id"]
+
+    unfiltered = client.get("/stock/movements").json()
+    assert unfiltered["total"] == 2
+
 
 def test_stock_adjust_requires_auth(db_session):
     response = client.post(

@@ -271,6 +271,11 @@ class UploadHistory(Base):
     # file, not DB rows — forecasting.py reads sales_records directly, but
     # eda.py's matplotlib pipeline still works off this file; see CLAUDE.md).
     processed_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # {total_rows, valid_rows, rejected_rows, warnings} from
+    # data_processing._validate_rows — see there for what gets rejected
+    # (missing/non-numeric store/item/sales) vs. merely flagged as a
+    # warning (negative sales — kept, not dropped; could be a return).
+    validation_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     # eda.perform_eda()'s return value, cached here once the background job
     # computes it — replaces the old app.state.data_path global (a single
     # shared in-process variable the next upload would silently clobber)

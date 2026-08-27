@@ -14,3 +14,10 @@ export function createForecast({ productId, warehouseId, modelType = 'random_for
 export function getForecastRun(runId) {
   return client.get(`/forecast/${runId}`).then((res) => res.data);
 }
+
+// Returns { items, total } — see components/LoadMoreButton.js.
+export function listForecastRuns({ productId, warehouseId, skip = 0, limit = 50 } = {}) {
+  return client
+    .get('/forecast', { params: { product_id: productId, warehouse_id: warehouseId, skip, limit } })
+    .then((res) => res.data);
+}

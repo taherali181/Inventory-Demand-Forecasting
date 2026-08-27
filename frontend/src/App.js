@@ -12,6 +12,7 @@ import ProductsPage from './pages/ProductsPage';
 import PurchaseOrderDetailPage from './pages/PurchaseOrderDetailPage';
 import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
 import RegisterPage from './pages/RegisterPage';
+import StockMovementsPage from './pages/StockMovementsPage';
 import StockPage from './pages/StockPage';
 import SuppliersPage from './pages/SuppliersPage';
 import UploadPage from './pages/UploadPage';
@@ -33,6 +34,7 @@ function App() {
               <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/stock" element={<StockPage />} />
+              <Route path="/stock/movements" element={<StockMovementsPage />} />
               <Route path="/alerts" element={<AlertsPage />} />
               <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
               <Route path="/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />

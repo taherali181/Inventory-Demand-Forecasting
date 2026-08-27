@@ -1,6 +1,6 @@
 import client from './client';
 
-// Returns { items, total } — see components/PaginatedList.js.
+// Returns { items, total } — see components/LoadMoreButton.js.
 export function listPurchaseOrders({ skip = 0, limit = 50 } = {}) {
   return client.get('/purchase-orders', { params: { skip, limit } }).then((res) => res.data);
 }

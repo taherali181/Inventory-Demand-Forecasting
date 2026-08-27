@@ -1,6 +1,6 @@
 import client from './client';
 
-// Returns { items, total } — see components/PaginatedList.js for the
+// Returns { items, total } — see components/LoadMoreButton.js for the
 // "Load more" pattern shared by every paginated list page.
 export function listWarehouses(includeInactive = false, { skip = 0, limit = 50 } = {}) {
   return client

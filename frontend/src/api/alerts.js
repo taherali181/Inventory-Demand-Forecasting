@@ -1,6 +1,6 @@
 import client from './client';
 
-// Returns { items, total } — see components/PaginatedList.js.
+// Returns { items, total } — see components/LoadMoreButton.js.
 export function listAlerts(statusFilter, { skip = 0, limit = 50 } = {}) {
   return client.get('/alerts', { params: { status_filter: statusFilter, skip, limit } }).then((res) => res.data);
 }

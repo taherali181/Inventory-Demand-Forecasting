@@ -74,6 +74,39 @@ def test_upload_and_eda():
     assert latest_eda_response.json() == eda_response.json()
 
 
+def test_upload_returns_validation_summary_and_survives_bad_rows():
+    # A CSV with a genuinely bad row (non-numeric store) alongside good
+    # ones — before Change 10.7, ingest.py's int(row.store) would raise an
+    # unhandled exception deep in the background task for the *whole*
+    # upload; now that row is rejected up front and the rest persists.
+    df = pd.DataFrame(
+        {
+            "date": pd.date_range("2023-01-01", periods=10).strftime("%Y-%m-%d"),
+            "store": [1] * 9 + ["not-a-number"],
+            "item": [1] * 10,
+            "sales": [100 + i for i in range(10)],
+        }
+    )
+    buf = io.BytesIO()
+    df.to_csv(buf, index=False)
+
+    response = client.post("/upload", files={"file": ("mixed.csv", buf.getvalue(), "text/csv")})
+    assert response.status_code == 202
+    body = response.json()
+    assert body["validation_summary"] == {
+        "total_rows": 10,
+        "valid_rows": 9,
+        "rejected_rows": 1,
+        "warnings": [
+            "1 row(s) rejected: missing or non-numeric store/item/sales value."
+        ],
+    }
+
+    upload_id = body["id"]
+    eda_response = client.get(f"/eda?upload_id={upload_id}")
+    assert eda_response.status_code == 200  # background processing completed, not "failed"
+
+
 def _single_product_csv_bytes(rows: int = 15) -> bytes:
     """Unlike _sample_csv_bytes, keeps store/item constant so every row lands
     on the same (product, warehouse) pair — enough history for a real

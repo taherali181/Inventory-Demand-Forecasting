@@ -10,10 +10,10 @@ receiving) with real per-product/warehouse demand forecasting, a SQLite/SQLAlche
 React frontend actually wired to the backend, CI, and Docker. `IMPROVEMENT_PLAN.md` (repo root) is a
 verified-against-the-code Phase 7–11 roadmap (security hardening → performance → architecture → UX →
 new features) picking up from there; Phase 7 (security hardening), Phase 8 (performance & scalability —
-Alembic, background tasks for upload/EDA/forecast, N+1 fixes, pagination, FK indexes), and Phase 9
-(architecture & code quality — see below) are done — check `git log` for what's actually landed. `README.md`
-is current and is the right starting point for a features/endpoints overview; this file covers the parts
-that need multiple files read together to understand.
+Alembic, background tasks for upload/EDA/forecast, N+1 fixes, pagination, FK indexes), Phase 9 (architecture
+& code quality), and Phase 10 (UX, accessibility & frontend polish — see below) are done — check `git log`
+for what's actually landed. `README.md` is current and is the right starting point for a features/endpoints
+overview; this file covers the parts that need multiple files read together to understand.
 
 Everything below was verified by actually running it each phase (pytest, `npm run build`/`test`, and live
 `uvicorn`/`npm start` smoke tests against real HTTP requests) rather than only reviewed by eye — see commit
@@ -109,11 +109,17 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   params, default `limit=50`/max `200`. `purchase_orders.py`'s list endpoint pages over PO **ids** first,
   then `joinedload()`s just that page's `items` — combining `.offset().limit()` directly with a
   one-to-many `joinedload` silently limits joined rows instead of distinct parent entities, a real
-  SQLAlchemy footgun, not a hypothetical one.
+  SQLAlchemy footgun, not a hypothetical one. `GET /stock/movements` (`product_id`/`warehouse_id`/
+  `start_date`/`end_date` filters, paginated) surfaces the `stock_movements` audit trail that `adjust_stock`
+  and `purchase_orders.py`'s `receive_purchase_order` were already writing but nothing previously read back.
 - `database.py` / `models.py` / `schemas.py` — SQLAlchemy engine/session (`DATABASE_URL` from
   `config.settings`, defaults to SQLite under `backend/data/`), the full inventory ORM schema (users,
   refresh_tokens, warehouses, suppliers, products, stock_levels, stock_movements, purchase_orders + items,
   sales_records, forecast_runs + predictions, upload_history, alerts), and the matching Pydantic schemas.
+  `database.py`'s `engine_kwargs_for(url)` (pure — no `create_engine()` call, so it's testable without the
+  target DBAPI driver installed) always sets `pool_pre_ping=True`; `pool_size`/`max_overflow`
+  (`config.settings.db_pool_size`/`db_max_overflow`, default 5/10) are added only for a non-SQLite URL —
+  SQLite's dialect doesn't accept them, and its "pool" is just a file anyway.
   FK columns (`StockLevel`/`StockMovement`/`PurchaseOrder`/`PurchaseOrderItem`/`Alert`) are indexed —
   added in the Change 8.8 migration once these tables were getting queried by FK in hot paths (alerts
   recompute, stock lookups). Schema changes go through Alembic (`backend/alembic/`) — see "Migrations"
@@ -174,7 +180,14 @@ at its explicit CJS build — don't remove that override without re-verifying `n
 - `data_processing.py` — validates an uploaded CSV (`date, store, item, sales` columns required), engineers
   features via `features.py`, and writes the result to `backend/data/processed_data_temp.csv` (gitignored).
   **Only `eda.py` still reads this CSV** — forecasting was rewritten in Phase 5 to query `sales_records` in
-  the DB directly instead, scoped to a specific `(product_id, warehouse_id)`.
+  the DB directly instead, scoped to a specific `(product_id, warehouse_id)`. `upload_and_validate_csv`
+  returns `(path, validation_summary)`, not just a path — `_validate_rows` rejects (drops) a row only when
+  `store`/`item`/`sales` is missing or non-numeric (there's no sane substitute, and `ingest.py`'s
+  `int(row.store)` would otherwise raise deep inside a background task for the whole upload over one bad
+  row); negative `sales` is flagged as a warning but kept, not rejected — it's ambiguous (could be a return)
+  rather than clearly invalid. `validation_summary` (`{total_rows, valid_rows, rejected_rows, warnings}`) is
+  persisted on `UploadHistory` and returned immediately in the 202 response, before the background task
+  even starts. Raises `ValueError` (→ 400) only if literally every row is rejected.
 - `upload_processing.py` — `process_upload_in_background(upload_history_id)`, scheduled via FastAPI
   `BackgroundTasks` from `routers/upload.py` after the request returns 202. Does the actual CSV persistence
   (`ingest.persist_sales_records`) and EDA chart generation, then writes `UploadHistory.status`
@@ -247,12 +260,22 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   test this (`jest.doMock('axios', ...)` + `jest.resetModules()` per test — a top-level `jest.mock('axios')`
   automock doesn't correctly shape axios's callable-function export).
 - `src/pages/*.js` — `DashboardPage`, `UploadPage`, `ForecastPage`, `EdaPage`, `WarehousesPage`,
-  `SuppliersPage`, `ProductsPage`, `StockPage`, `AlertsPage`, `PurchaseOrdersPage` +
-  `PurchaseOrderDetailPage` (`/purchase-orders/:id`), `LoginPage`, `RegisterPage`. The 6 list pages
-  (`Warehouses`/`Suppliers`/`Products`/`Stock`/`Alerts`/`PurchaseOrders`) all use the shared
+  `SuppliersPage`, `ProductsPage`, `StockPage`, `StockMovementsPage`, `AlertsPage`, `PurchaseOrdersPage` +
+  `PurchaseOrderDetailPage` (`/purchase-orders/:id`), `LoginPage`, `RegisterPage`. The 7 list pages
+  (`Warehouses`/`Suppliers`/`Products`/`Stock`/`StockMovements`/`Alerts`/`PurchaseOrders`) all use the shared
   `usePaginatedList` hook (`src/hooks/usePaginatedList.js`) + `LoadMoreButton` component to consume the
   backend's `{items, total}` paginated responses — `reload()` for "refetch from scratch" (after a
-  create/update), `loadMore()` to append the next page.
+  create/update), `loadMore()` to append the next page. The 3 CRUD pages (`Warehouses`/`Suppliers`/
+  `Products`) share one more pattern: an `editingId` state that switches the same inline-form into edit
+  mode (pre-filled, submit calls `updateX(id, payload)` instead of `createX(payload)`, submit button reads
+  "Save changes", a "Cancel edit" button appears) — added in Change 10.3 to actually use the
+  `updateProduct`/`updateWarehouse`/`updateSupplier` API functions, which existed and were tested at the
+  backend but had no frontend caller before. `ForecastPage` similarly wires up `getForecastRun`/
+  `listForecastRuns`: a "Past runs" list (filtered to the selected product/warehouse) lets you re-view an
+  earlier run's predictions via `getForecastRun` (which re-reads without retraining) instead of only ever
+  seeing the most recent submission's result. Each CRUD page's `handleDeactivate` is wrapped in try/catch
+  (Change 10.1) — it wasn't, before, so a failed deactivation (e.g. a 403 once Phase 7's RBAC landed) was an
+  unhandled promise rejection with no user-visible error.
 - `src/components/` — `Navbar`, `FileUploadForm`, `ForecastChart` (chart.js; predictions are
   `{forecast_date, predicted_sales}` pairs, not bare numbers), `EdaCharts` (renders the backend's base64
   PNGs via `<img>`), `DataTable` (generic — pass `columns`/`rows`, used by every CRUD page),
@@ -260,7 +283,15 @@ at its explicit CJS build — don't remove that override without re-verifying `n
   `StockAdjustModal`, `POForm`. Dropdown data (e.g. the warehouse `<select>` in `StockAdjustModal`/`POForm`)
   fetches the paginated list APIs with `{ limit: 200 }` and unwraps `.items` directly — a one-off,
   non-paginated read, not wired through `usePaginatedList`, since these are populating a `<select>`, not
-  rendering the page's primary list.
+  rendering the page's primary list. `StockAdjustModal` has `role="dialog"`/`aria-modal="true"`/
+  `aria-labelledby`, closes on Escape, and manually traps Tab/Shift+Tab within its handful of focusable
+  elements (Change 10.5) — see `StockAdjustModal.test.js` for the pattern if extending this to another
+  modal. The 3 CRUD pages' inline-form inputs each have a real `<label htmlFor>` (visually hidden via the
+  `.sr-only` class in `App.css`, since a visible label breaks their compact horizontal `inline-form` layout
+  — `placeholder` stays as the visible hint) rather than only a bare `placeholder` (Change 10.4).
 - Pages that fetch on mount need their API module mocked in tests (`jest.mock('../api/products')` etc.) —
   see `src/pages/ProductsPage.test.js` for the pattern. Without it, the test hits the real
-  `REACT_APP_API_BASE_URL` and hangs/fails in CI, where no backend is running.
+  `REACT_APP_API_BASE_URL` and hangs/fails in CI, where no backend is running. To simulate a logged-in user
+  (needed to test write actions like Edit/Deactivate, which only render for `useAuth().user`), seed
+  `localStorage.setItem('accessToken', ...)` before rendering and mock `api/auth`'s `getCurrentUser` to
+  resolve a user — see `ProductsPage.test.js`'s `renderPageLoggedIn()` helper.

@@ -177,6 +177,20 @@ class StockLevelRead(BaseModel):
     last_updated_at: dt.datetime
 
 
+class StockMovementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    warehouse_id: int
+    movement_type: MovementType
+    quantity_delta: int
+    reference_type: Optional[str]
+    reference_id: Optional[int]
+    created_by: Optional[int]
+    created_at: dt.datetime
+
+
 class StockAdjustment(BaseModel):
     product_id: int
     warehouse_id: int
@@ -303,3 +317,4 @@ class UploadAcceptedRead(BaseModel):
     filename: str
     status: str
     uploaded_at: dt.datetime
+    validation_summary: Optional[dict] = None

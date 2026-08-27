@@ -90,7 +90,7 @@ All endpoints are documented interactively at `/docs`. Broad strokes:
 |---|---|
 | Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` |
 | Upload/EDA | `POST /upload`, `GET /eda` |
-| Inventory | `GET/POST/PUT/DELETE /warehouses`, `/suppliers`, `/products`; `GET /stock`, `POST /stock/adjust` |
+| Inventory | `GET/POST/PUT/DELETE /warehouses`, `/suppliers`, `/products`; `GET /stock`, `POST /stock/adjust`, `GET /stock/movements` |
 | Alerts | `GET /alerts`, `POST /alerts/recompute` |
 | Purchase orders | `GET/POST /purchase-orders`, `PUT /purchase-orders/{id}/status`, `POST /purchase-orders/{id}/receive` |
 | Forecast | `POST /forecast`, `GET /forecast`, `GET /forecast/{id}` |

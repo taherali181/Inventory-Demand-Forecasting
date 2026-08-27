@@ -1,6 +1,6 @@
 import client from './client';
 
-// Returns { items, total } — see components/PaginatedList.js.
+// Returns { items, total } — see components/LoadMoreButton.js.
 export function listProducts(includeInactive = false, { skip = 0, limit = 50 } = {}) {
   return client
     .get('/products', { params: { include_inactive: includeInactive, skip, limit } })

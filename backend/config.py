@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # importing the (large) holidays package at settings-load time.
     holiday_country: str = "IN"
 
+    # Connection pool sizing — only meaningful for a real server DB
+    # (Postgres etc.); database.py skips passing these to create_engine()
+    # for a sqlite:// URL, where SQLAlchemy's pooling doesn't apply the
+    # same way. See database.py for how these are actually used.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+
 
 settings = Settings()
 

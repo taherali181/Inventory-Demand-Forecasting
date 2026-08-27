@@ -32,7 +32,7 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="Only .csv files are accepted.")
 
     try:
-        data_path = upload_and_validate_csv(file.file)
+        data_path, validation_summary = upload_and_validate_csv(file.file)
     except ValueError as exc:
         db.add(
             UploadHistory(
@@ -52,6 +52,7 @@ async def upload_file(
         filename=file.filename,
         uploaded_by=current_user.id if current_user else None,
         processed_file_path=data_path,
+        validation_summary=validation_summary,
         status="processing",
     )
     db.add(upload_record)

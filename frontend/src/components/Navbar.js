@@ -35,6 +35,9 @@ function Navbar() {
         <NavLink to="/stock" className={linkClass}>
           Stock
         </NavLink>
+        <NavLink to="/stock/movements" className={linkClass}>
+          Movements
+        </NavLink>
         <NavLink to="/alerts" className={linkClass}>
           Alerts
         </NavLink>

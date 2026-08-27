@@ -1,4 +1,5 @@
 # routers/stock.py
+import datetime as dt
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Product, StockLevel, StockMovement, User, Warehouse
 from routers.auth import get_current_user
-from schemas import PaginatedResponse, StockAdjustment, StockLevelRead
+from schemas import PaginatedResponse, StockAdjustment, StockLevelRead, StockMovementRead
 from stock_ops import get_or_create_stock_level, stock_level_lock
 
 router = APIRouter(prefix="/stock", tags=["stock"])
@@ -28,6 +29,34 @@ def list_stock_levels(
         query = query.filter(StockLevel.warehouse_id == warehouse_id)
     total = query.count()
     items = query.offset(skip).limit(limit).all()
+    return PaginatedResponse(items=items, total=total)
+
+
+@router.get("/movements", response_model=PaginatedResponse[StockMovementRead])
+def list_stock_movements(
+    product_id: Optional[int] = None,
+    warehouse_id: Optional[int] = None,
+    start_date: Optional[dt.date] = None,
+    end_date: Optional[dt.date] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+):
+    """Every stock adjustment and PO receipt is already logged to
+    stock_movements (see adjust_stock below and
+    routers/purchase_orders.py's receive_purchase_order) — this just
+    surfaces that existing audit trail, previously write-only."""
+    query = db.query(StockMovement)
+    if product_id is not None:
+        query = query.filter(StockMovement.product_id == product_id)
+    if warehouse_id is not None:
+        query = query.filter(StockMovement.warehouse_id == warehouse_id)
+    if start_date is not None:
+        query = query.filter(StockMovement.created_at >= start_date)
+    if end_date is not None:
+        query = query.filter(StockMovement.created_at < end_date + dt.timedelta(days=1))
+    total = query.count()
+    items = query.order_by(StockMovement.created_at.desc()).offset(skip).limit(limit).all()
     return PaginatedResponse(items=items, total=total)
 
 
