@@ -1,71 +1,72 @@
 # data_processing.py
-import pandas as pd
+import logging
 import time
+
 import holidays
-import os
 import numpy as np
+import pandas as pd
 
-def upload_and_validate_csv(file_path):
-    print("reading...")
+from config import PROCESSED_DATA_PATH
+
+logger = logging.getLogger(__name__)
+
+REQUIRED_COLUMNS = ["date", "store", "item", "sales"]
+
+
+def upload_and_validate_csv(file_obj) -> str:
+    """Validate an uploaded sales CSV, engineer forecasting features, and persist it.
+
+    Raises ValueError if the file can't be parsed or is missing required columns
+    (callers are expected to turn this into an HTTP 400). Returns the path to the
+    processed CSV on success.
+    """
+    start_time = time.time()
+
     try:
-        start_time = time.time()
-        data = pd.read_csv(file_path)
-        # Validate required columns
-        required_columns = ['date', 'store', 'item', 'sales']
-        if not all(column in data.columns for column in required_columns):
-            raise ValueError("CSV file is missing required columns.")
-        
-        # Filter relevant columns
-        data = data[['date', 'store', 'item', 'sales']]
+        data = pd.read_csv(file_obj)
+    except Exception as exc:
+        raise ValueError(f"Could not read CSV file: {exc}") from exc
 
-        # Feature engineering
-        # Split date into year, month, and day
+    missing = [column for column in REQUIRED_COLUMNS if column not in data.columns]
+    if missing:
+        raise ValueError(f"CSV file is missing required columns: {', '.join(missing)}")
+
+    data = data[REQUIRED_COLUMNS].copy()
+
+    # Split date into year, month, day and rebuild as a real datetime column.
+    try:
         parts = data["date"].str.split("-", n=3, expand=True)
         data["year"] = parts[0].astype(int)
         data["month"] = parts[1].astype(int)
         data["day"] = parts[2].astype(int)
+        data["date"] = pd.to_datetime(data[["year", "month", "day"]])
+    except Exception as exc:
+        raise ValueError(f"Could not parse 'date' column (expected YYYY-MM-DD): {exc}") from exc
 
-        # Convert date into datetime object
-        data['date'] = pd.to_datetime(data[['year', 'month', 'day']])
+    # Weekend flag
+    data["weekend"] = (data["date"].dt.weekday > 4).astype(int)
 
-        # Convert year, month, day to integers
-        data['year'] = data['year'].astype(int)
-        data['month'] = data['month'].astype(int)
-        data['day'] = data['day'].astype(int)
-        
-        
-        # Add weekend or weekday feature
-        data['weekend'] = data['date'].dt.weekday > 4
-        data['weekend'] = data['weekend'].astype(int)
+    # Holiday flag (India calendar — hardcoded for now, see backlog for making this configurable)
+    india_holidays = holidays.country_holidays("IN")
+    data["holidays"] = data["date"].isin(india_holidays).astype(int)
 
-        # Add holiday feature
-        india_holidays = holidays.country_holidays('IN')
-        data['holidays'] = data['date'].isin(india_holidays).astype(int)
+    # Cyclical month encoding
+    data["m1"] = np.sin(data["month"] * (2 * np.pi / 12))
+    data["m2"] = np.cos(data["month"] * (2 * np.pi / 12))
 
-        # Add cyclical month features
-      
-        data['m1'] = np.sin(data['month'] * (2 * np.pi / 12))
-        data['m2'] = np.cos(data['month'] * (2 * np.pi / 12))
+    # Day-of-week
+    data["weekday"] = data["date"].dt.weekday
 
-        # Add weekday feature
-        data['weekday'] = data['date'].dt.weekday
-        
-        # Drop the original date column
-        data.drop('date', axis=1, inplace=True)
-        
-        # Save the processed data to a temporary CSV file
-        temp_csv_path = 'data/processed_data_temp.csv'
-        data.to_csv(temp_csv_path, index=False)
-        
-        end_time = time.time()
-        print(f"Processing completed in {end_time - start_time:.2f} seconds.")
-        
-        return temp_csv_path
-    
-    except Exception as e:
-        print(f"Error: {e}")
-        
-        # Clean up any temporary file if created
-        if 'temp_csv_path' in locals() and os.path.exists(temp_csv_path):
-            os.remove(temp_csv_path)
-        return None
+    data.drop("date", axis=1, inplace=True)
+
+    PROCESSED_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    data.to_csv(PROCESSED_DATA_PATH, index=False)
+
+    logger.info(
+        "Processed %d rows into %s in %.2fs",
+        len(data),
+        PROCESSED_DATA_PATH,
+        time.time() - start_time,
+    )
+
+    return str(PROCESSED_DATA_PATH)

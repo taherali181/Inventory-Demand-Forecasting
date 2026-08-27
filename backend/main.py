@@ -1,33 +1,42 @@
 # main.py
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
-from data_processing import upload_and_validate_csv
-from forecasting import moving_average_forecast, advanced_forecasting
-from chatbot import app as chatbot_app
-from eda import perform_eda
+import logging
 import os
-import pandas as pd
 
-app = FastAPI()
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+from chatbot import app as chatbot_app
+from config import CORS_ALLOWED_ORIGINS
+from routers import eda, forecast, upload
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+app = FastAPI(title="Inventory Forecasting API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Path to the most recently uploaded/processed dataset. Single-tenant stopgap
+# (was a bare global before) — replaced by per-user records in the database
+# once Phase 1 lands.
+app.state.data_path = None
+
+app.include_router(upload.router)
+app.include_router(forecast.router)
+app.include_router(eda.router)
 app.mount("/chatbot", chatbot_app)
 
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    global data
-    data = upload_and_validate_csv(file.file)
-    if data is not None:
-        perform_eda(data)
-        return {"message": "File uploaded and EDA performed successfully."}
-    return {"error": "Failed to upload file."}
+# Legacy static Bootstrap frontend. Slated for removal in Phase 2 once the
+# React app is rebuilt and becomes the one real frontend.
+_FRONTEND_INDEX = os.path.join(os.path.dirname(__file__), "frontend", "index.html")
 
-@app.get("/forecast")
-async def forecast(forecast_horizon: int = 7):
-    if 'data' not in globals():
-        return {"error": "No data uploaded yet."}
-    predictions = advanced_forecasting(data)
-    return predictions.tolist()
 
 @app.get("/")
 async def serve_frontend():
-    frontend_path = os.path.join(os.path.dirname(__file__), "frontend", "index.html")
-    return FileResponse(frontend_path)
+    return FileResponse(_FRONTEND_INDEX)
