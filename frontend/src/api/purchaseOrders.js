@@ -17,6 +17,18 @@ export function updatePurchaseOrderStatus(id, status) {
   return client.put(`/purchase-orders/${id}/status`, { status }).then((res) => res.data);
 }
 
+export function submitPurchaseOrder(id) {
+  return updatePurchaseOrderStatus(id, 'submitted');
+}
+
+export function approvePurchaseOrder(id) {
+  return updatePurchaseOrderStatus(id, 'approved');
+}
+
+export function cancelPurchaseOrder(id) {
+  return updatePurchaseOrderStatus(id, 'cancelled');
+}
+
 export function receivePurchaseOrder(id, items) {
   return client.post(`/purchase-orders/${id}/receive`, { items }).then((res) => res.data);
 }

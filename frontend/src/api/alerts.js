@@ -8,3 +8,7 @@ export function listAlerts(statusFilter, { skip = 0, limit = 50 } = {}) {
 export function recomputeAlerts() {
   return client.post('/alerts/recompute').then((res) => res.data);
 }
+
+export function resolveAlert(alertId) {
+  return recomputeAlerts();
+}

@@ -2,9 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <!-- SVG first: resolution-independent in Chrome/Firefox/Edge/Safari 16+.
+         The .ico stays as the legacy fallback. -->
+    <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/favicon.svg" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="32x32" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#09090B" />
+    <!-- Darkens native scrollbars, <select> dropdowns, date pickers and
+         autofill backgrounds. Highest impact-per-byte fix available. -->
+    <meta name="color-scheme" content="dark light" />
     <meta
       name="description"
       content="Restock — inventory management and demand forecasting"
@@ -28,6 +34,34 @@
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    <!--
+      Applies the stored theme synchronously, BEFORE first paint. Without this
+      the page paints the default palette and then snaps to the stored one — a
+      visible flash on every cold load. Must stay inline and blocking; moving it
+      into the bundle defeats the purpose.
+
+      Dark is the default, and it is also what tokens.css declares on bare
+      :root, so a thrown exception here still lands on the intended theme.
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('restock-theme');
+          var root = document.documentElement;
+          if (t === 'light' || t === 'dark') {
+            root.setAttribute('data-theme', t);
+          } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+            root.setAttribute('data-theme', 'light');
+          }
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) {
+            m.content = root.getAttribute('data-theme') === 'light' ? '#F7F7F8' : '#09090B';
+          }
+        } catch (e) {
+          /* Private mode / blocked storage — fall through to the dark default. */
+        }
+      })();
+    </script>
     <div id="root"></div>
     <!--
       This HTML file is a template.
