@@ -12,9 +12,15 @@ import { useAppStore } from '../store/useAppStore';
  * whatever `activeStudioView` happened to be — in practice always the default
  * dashboard. /forecast showed the dashboard; the URL and the visible studio
  * were simply unrelated.
+ *
+ * "/" deliberately has NO entry: it's the chat home, calm and full-width by
+ * default (v2.0's progressive canvas). Every other path here is an explicit
+ * deep link to a studio view, so it's supposed to open the canvas — "/" is
+ * not that, and mapping it to 'dashboard' would force the canvas open on
+ * every fresh load, which is exactly the permanent-split layout this
+ * replaced.
  */
 const PATH_TO_STUDIO = {
-  '/': 'dashboard',
   '/dashboard': 'dashboard',
   '/forecast': 'forecast',
   '/inventory': 'inventory',

@@ -10,7 +10,11 @@ const QUICK_ACTIONS = [
 export const useAppStore = create((set, get) => ({
   // Navigation & Layout
   activeStudioView: 'dashboard', // 'dashboard' | 'forecast' | 'inventory' | 'purchase-orders' | 'alerts' | 'eda' | 'audit'
-  splitMode: 'split', // 'split' | 'chat-only' | 'studio-only'
+  // v2.0: the canvas is progressive, not a permanent split — chat is
+  // full-width and calm until something worth showing opens it. Only an
+  // explicit deep link (setActiveStudioView, called from a named route or a
+  // widget) flips this to 'split'; visiting "/" never does.
+  splitMode: 'chat-only', // 'split' | 'chat-only' | 'studio-only'
   isCmdKOpen: false,
   unreadAlertsCount: 0,
   selectedEntity: null, // { type: 'product' | 'po' | 'forecast', id: ..., data: ... }

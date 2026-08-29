@@ -31,9 +31,6 @@
     @apply bg-canvas text-content antialiased font-sans;
     margin: 0;
     height: 100%;
-    /* Inter's cv11 gives the single-storey l/1 disambiguation that reads as
-       considered rather than default-settings. */
-    font-feature-settings: 'cv11' 1, 'ss01' 1;
     letter-spacing: -0.006em;
     transition: background-color 150ms ease, color 150ms ease;
   }

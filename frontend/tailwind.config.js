@@ -33,6 +33,7 @@ module.exports = {
         surface: {
           DEFAULT: c('--surface'),
           2: c('--surface-2'),
+          3: c('--surface-3'),
         },
         hairline: {
           DEFAULT: c('--border'),
@@ -76,8 +77,8 @@ module.exports = {
         lg: 'var(--shadow-lg)',
       },
       fontFamily: {
-        sans: ['"Inter Variable"', 'Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['"Space Grotesk Variable"', '"Space Grotesk"', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       keyframes: {
         shimmer: {

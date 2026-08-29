@@ -4,7 +4,7 @@
  * WHY SPACE-SEPARATED RGB CHANNELS, NOT HEX:
  * Tailwind's <alpha-value> placeholder needs raw channels to build
  * `rgb(99 102 241 / 0.1)`. Storing `#6366F1` instead silently breaks every
- * opacity modifier — and this codebase has 45 of them (bg-status-bad/10,
+ * opacity modifier — and this codebase has 45+ of them (bg-status-bad/10,
  * border-status-good/25, …). Those would render at FULL opacity, turning
  * subtle tinted badges into solid blocks. Verified by grep before choosing.
  *
@@ -17,59 +17,80 @@
  * Resolution order: an explicit [data-theme] wins; otherwise the OS decides;
  * ties go to dark.
  *
- * Status colors deliberately differ per theme. #34D399 fails contrast on white
- * and #059669 goes muddy on near-black — same token name, correct value for
- * the surface it actually lands on.
+ * Status colors deliberately differ per theme, same as before this palette
+ * changed: a muted tone that reads calmly on near-black goes muddy or fails
+ * contrast on white, so light mode reuses the same token names at darker,
+ * more saturated values rather than the literal same RGB triplet.
+ *
+ * v2.0 REDESIGN (2026): swapped from the original indigo/glass system to a
+ * near-black, high-contrast base with a single blue accent used sparingly,
+ * muted (not neon) status colors, and a sharper radius scale — see the
+ * mockup canvas this was extracted from for the full rationale. Variable
+ * NAMES are unchanged from the original system on purpose: ~150 existing
+ * `bg-surface-2`, `text-content-secondary`, `status-bad/10`-style usages
+ * across both the new and not-yet-migrated legacy pages depend on them, and
+ * keeping the names stable re-themes the whole app for free.
  */
 
 :root {
   color-scheme: dark;
 
   /* Surfaces */
-  --canvas: 9 9 11;            /* #09090B  page                        */
-  --surface: 19 19 22;         /* #131316  raised card                 */
-  --surface-2: 24 24 27;       /* #18181B  inset / hover / table head   */
+  --canvas: 10 10 10;           /* #0A0A0A  page                         */
+  --surface: 19 19 19;          /* #131313  raised card                  */
+  --surface-2: 26 26 26;        /* #1A1A1A  inset / hover / table head   */
+  --surface-3: 33 33 33;        /* #212121  nested inset (pills, counts) */
 
   /* Hairlines */
-  --border: 39 39 42;          /* #27272A                              */
-  --border-strong: 63 63 70;   /* #3F3F46                              */
+  --border: 44 44 44;           /* #2C2C2C                               */
+  --border-strong: 69 69 69;    /* #454545                               */
 
   /* Text */
-  --text: 250 250 250;         /* #FAFAFA  primary                     */
-  --text-secondary: 161 161 170; /* #A1A1AA secondary                  */
-  --text-muted: 113 113 122;   /* #71717A  muted / placeholder         */
+  --text: 245 245 245;          /* #F5F5F5  primary                      */
+  --text-secondary: 160 160 160; /* #A0A0A0 secondary                   */
+  --text-muted: 122 122 122;    /* #7A7A7A  muted / placeholder — kept
+                                    above the 4.5:1 AA floor on canvas    */
 
-  /* Accent — locked indigo. Dark hover goes LIGHTER (more contrast on black). */
-  --accent: 99 102 241;        /* #6366F1                              */
-  --accent-hover: 129 140 248; /* #818CF8                              */
-  --accent-active: 79 70 229;  /* #4F46E5                              */
-  --accent-fg: 255 255 255;    /* text on an accent fill               */
+  /* Accent — a confident, functional blue, not a neon novelty color.
+     Dark hover goes LIGHTER (more contrast on black); the fill itself pairs
+     with dark text (see --accent-fg) since this particular blue is bright
+     enough for that to hold ~5:1 contrast either direction. */
+  --accent: 62 123 250;         /* #3E7BFA                               */
+  --accent-hover: 91 144 251;   /* #5B90FB                               */
+  --accent-active: 47 98 214;   /* #2F62D6                               */
+  --accent-fg: 13 13 13;        /* #0D0D0D  text on an accent fill       */
 
-  /* Status */
-  --good: 52 211 153;          /* #34D399                              */
-  --warn: 251 191 36;          /* #FBBF24                              */
-  --bad: 251 113 133;          /* #FB7185                              */
-  --info: 96 165 250;          /* #60A5FA                              */
+  /* Status — muted, not neon. Used on detail elements (icons, small text,
+     chart lines, the odd status stripe) — never as a glowing box highlight. */
+  --good: 79 169 122;           /* #4FA97A                               */
+  --warn: 201 162 39;           /* #C9A227                               */
+  --bad: 194 85 93;             /* #C2555D                               */
+  --info: 74 147 184;           /* #4A93B8                               */
 
   /* Elevation — dark needs deeper, wider shadows to register at all */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.40);
   --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.50), 0 2px 4px -2px rgb(0 0 0 / 0.30);
   --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.60), 0 4px 8px -4px rgb(0 0 0 / 0.40);
 
-  /* Glass — see .glass in index.css for the scope rules */
-  --glass-tint: 22 22 28;
-  --glass-alpha: 0.72;
+  /* Glass — see .glass in index.css. Retained for not-yet-migrated files
+     only (ModernLoginPage, the studio views, the old chat widgets); no new
+     v2 component should reach for it — the new surfaces are opaque with a
+     hairline border, no backdrop-filter. Remove once every consumer in the
+     "19 files" comment in index.css is gone. */
+  --glass-tint: 19 19 19;
+  --glass-alpha: 0.80;
   --glass-blur: 16px;
   --glass-saturate: 140%;
   --glass-hairline: 255 255 255;
-  --glass-hairline-alpha: 0.08;
-  --glass-sheen-alpha: 0.04;
+  --glass-hairline-alpha: 0.06;
+  --glass-sheen-alpha: 0.03;
 
-  /* Radius */
-  --r-sm: 6px;   /* badges, kbd, chips  */
-  --r-md: 8px;   /* buttons, inputs     */
-  --r-lg: 12px;  /* cards               */
-  --r-xl: 16px;  /* modals, palette     */
+  /* Radius — sharper/smaller than the original scale, a deliberate part of
+     the new visual identity (see the mockup canvas). */
+  --r-sm: 3px;   /* badges, kbd, chips  */
+  --r-md: 6px;   /* buttons, inputs     */
+  --r-lg: 10px;  /* cards               */
+  --r-xl: 14px;  /* modals, palette     */
 }
 
 /* Explicit light choice */
@@ -79,6 +100,7 @@
   --canvas: 247 247 248;       /* #F7F7F8 */
   --surface: 255 255 255;      /* #FFFFFF */
   --surface-2: 244 244 246;    /* #F4F4F6 */
+  --surface-3: 237 237 240;    /* #EDEDF0 */
 
   --border: 228 228 231;       /* #E4E4E7 */
   --border-strong: 212 212 216;/* #D4D4D8 */
@@ -88,20 +110,22 @@
   --text-muted: 139 139 148;   /* #8B8B94 */
 
   /*
-   * Light hover moves toward HIGHER contrast, the opposite direction from dark.
-   * #818CF8 on white is 3.0:1 — it fails contrast and, worse, a lighter-on-hover
-   * button reads as going disabled. Primary stays #6366F1 in both themes, so the
-   * brand color is unchanged; only the interaction states mirror by direction.
+   * Light hover moves toward HIGHER contrast, the opposite direction from
+   * dark — a lighter-on-hover button on white reads as going disabled.
+   * The accent hue itself is unchanged from dark mode; only hover/active
+   * move darker here.
    */
-  --accent: 99 102 241;        /* #6366F1 */
-  --accent-hover: 79 70 229;   /* #4F46E5 */
-  --accent-active: 67 56 202;  /* #4338CA */
-  --accent-fg: 255 255 255;
+  --accent: 62 123 250;        /* #3E7BFA — same hue as dark mode */
+  --accent-hover: 39 90 214;   /* #275AD6 */
+  --accent-active: 29 70 173;  /* #1D46AD */
+  --accent-fg: 13 13 13;
 
-  --good: 5 150 105;           /* #059669 */
+  /* Darker/more saturated than the dark-mode values — the muted dark-mode
+     tones go too low-contrast on white to read as status color at all. */
+  --good: 4 120 87;            /* #047857 */
   --warn: 180 83 9;            /* #B45309 */
-  --bad: 220 38 38;            /* #DC2626 */
-  --info: 37 99 235;           /* #2563EB */
+  --bad: 190 18 60;            /* #BE123C */
+  --info: 3 105 161;           /* #0369A1 */
 
   --shadow-sm: 0 1px 2px 0 rgb(16 24 40 / 0.05);
   --shadow-md: 0 4px 12px -2px rgb(16 24 40 / 0.08), 0 2px 4px -2px rgb(16 24 40 / 0.04);
@@ -124,6 +148,7 @@
     --canvas: 247 247 248;
     --surface: 255 255 255;
     --surface-2: 244 244 246;
+    --surface-3: 237 237 240;
 
     --border: 228 228 231;
     --border-strong: 212 212 216;
@@ -132,15 +157,15 @@
     --text-secondary: 82 82 91;
     --text-muted: 139 139 148;
 
-    --accent: 99 102 241;
-    --accent-hover: 79 70 229;
-    --accent-active: 67 56 202;
-    --accent-fg: 255 255 255;
+    --accent: 62 123 250;
+    --accent-hover: 39 90 214;
+    --accent-active: 29 70 173;
+    --accent-fg: 13 13 13;
 
-    --good: 5 150 105;
+    --good: 4 120 87;
     --warn: 180 83 9;
-    --bad: 220 38 38;
-    --info: 37 99 235;
+    --bad: 190 18 60;
+    --info: 3 105 161;
 
     --shadow-sm: 0 1px 2px 0 rgb(16 24 40 / 0.05);
     --shadow-md: 0 4px 12px -2px rgb(16 24 40 / 0.08), 0 2px 4px -2px rgb(16 24 40 / 0.04);

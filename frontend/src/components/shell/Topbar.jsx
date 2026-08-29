@@ -7,24 +7,19 @@ import { useAuth } from '../../context/AuthContext';
 import * as alertsApi from '../../api/alerts';
 
 /*
- * Floating chrome above the routed content — one of the four surfaces allowed
- * to use `.glass`.
+ * Header above the routed content.
  *
- * Deliberately NOT here any more (all migrated out of ModernNavbar):
- *  - the logo lock-up: it lives at the head of the sidebar, where the app's
- *    identity belongs once there is a persistent rail;
- *  - the "2.0" badge and the "AI Supply Chain OS" eyebrow: overclaiming copy;
- *  - the sound toggle: sound is gone from the product, and the slot it used to
- *    occupy is now the theme control in the sidebar footer;
- *  - the quick studio buttons: the sidebar covers every destination, including
- *    the ten that previously had none.
+ * v2.0: opaque, hairline-bordered — not `.glass` any more. The new surface
+ * language is a solid `bg-surface` with a 1px border, no backdrop-filter,
+ * across the whole redesign (see the mockup canvas this was built from);
+ * glass was the old system's one translucent treatment and this is the last
+ * shell piece that still used it.
  *
- * `position: fixed` descendants must NOT be nested inside this element —
- * backdrop-filter makes it their containing block, so a fixed overlay would
- * size to this 56px header. The command palette is a sibling, in AppShell.
+ * The hamburger is `lg:hidden` because IconRail (persistent, desktop only)
+ * already exposes the same "open the menu drawer" action there — on mobile,
+ * where IconRail doesn't render, this is the only way to reach it.
  */
-
-export function Topbar({ onOpenMobileNav }) {
+export function Topbar({ onOpenMenu }) {
   const setCmdKOpen = useAppStore((s) => s.setCmdKOpen);
   const unreadAlertsCount = useAppStore((s) => s.unreadAlertsCount);
   const setUnreadAlertsCount = useAppStore((s) => s.setUnreadAlertsCount);
@@ -45,14 +40,13 @@ export function Topbar({ onOpenMobileNav }) {
   return (
     <header
       className={cn(
-        'glass sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 rounded-none',
-        'border-x-0 border-t-0 border-b border-hairline px-3 sm:px-4'
+        'sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-hairline bg-surface px-3 sm:px-4'
       )}
     >
       <button
         type="button"
-        onClick={onOpenMobileNav}
-        aria-label="Open navigation"
+        onClick={onOpenMenu}
+        aria-label="Open menu"
         className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-content-secondary transition-colors duration-150 hover:bg-surface-2 hover:text-content lg:hidden"
       >
         <Menu className="h-5 w-5" />
@@ -66,7 +60,7 @@ export function Topbar({ onOpenMobileNav }) {
         onClick={() => setCmdKOpen(true)}
         className={cn(
           'flex h-9 w-full max-w-sm items-center justify-between gap-2 rounded-md',
-          'border border-hairline bg-surface px-3 text-sm text-content-muted',
+          'border border-hairline bg-canvas px-3 text-sm text-content-muted',
           'transition-colors duration-150 hover:border-hairline-strong hover:text-content-secondary'
         )}
       >
@@ -97,14 +91,12 @@ export function Topbar({ onOpenMobileNav }) {
           </span>
         </Link>
 
-        {/* Signed-in identity and sign-out live in the sidebar footer, so the
-            topbar only carries the signed-out call to action. This was an
-            <a href="/login">, which forced a full document reload and threw
-            away the in-memory auth state on the way to the login page. */}
+        {/* Signed-in identity and sign-out live in the menu drawer, so the
+            topbar only carries the signed-out call to action. */}
         {!user && (
           <Link
             to="/login"
-            className="inline-flex h-9 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-fg shadow-sm transition-colors duration-150 hover:bg-accent-hover"
+            className="inline-flex h-9 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-fg transition-colors duration-150 hover:bg-accent-hover"
           >
             Sign in
           </Link>
