@@ -28,7 +28,7 @@ backend/data/models/
 
 # Node (frontend has its own .gitignore too, but ignore stray artifacts at root)
 frontend/node_modules/
-frontend/build/
+frontend/dist/
 
 # Documentation & AI assistant configs (exclude from git tracking)
 docs/

@@ -1,0 +1,65 @@
+/*
+ * Design tokens — the single source of truth for every color in the app.
+ *
+ * Extracted directly from the approved mockup canvas
+ * (https://claude.ai/code/artifact/3a1bec6d-baa9-4bc8-8356-cb16c523bc8a), verified against all six
+ * .dc.html source files, not re-derived or reinterpreted. See design-reference/design-brief.md for the
+ * full provenance and the two flagged inconsistencies found across the mockup files.
+ *
+ * WHY SPACE-SEPARATED RGB CHANNELS, NOT HEX:
+ * Tailwind's <alpha-value> placeholder needs raw channels to build `rgb(62 123 250 / 0.1)`. Storing
+ * `#3E7BFA` instead breaks every opacity modifier (`bg-accent/10`, `border-status-bad/25`, etc.) —
+ * those would render at FULL opacity. This is the same convention the original app uses.
+ *
+ * Dark-only: the mockup source defines no light-mode variant at all. Not an oversight to "fix" — confirmed
+ * directly against every file.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --canvas: 10 10 10;      /* #0A0A0A */
+  --surface: 19 19 19;     /* #131313 */
+  --surface-2: 26 26 26;   /* #1A1A1A */
+  --surface-3: 33 33 33;   /* #212121 */
+
+  /* Hairlines */
+  --border: 44 44 44;          /* #2C2C2C */
+  --border-strong: 69 69 69;   /* #454545 */
+
+  /* Text */
+  --text: 245 245 245;     /* #F5F5F5 */
+  --text-2: 160 160 160;   /* #A0A0A0 */
+  --text-3: 122 122 122;   /* #7A7A7A */
+
+  /* Accent — single color, used sparingly (never as a full glowing box highlight; see the design brief). */
+  --accent: 62 123 250;    /* #3E7BFA */
+  --accent-fg: 13 13 13;   /* #0D0D0D — text/icon color placed ON an accent fill */
+
+  /* Status — muted, not neon. Reserved for detail elements (icons, small text, chart lines, a status
+     stripe) — never a glowing box highlight either. */
+  --good: 79 169 122;   /* #4FA97A */
+  --warn: 201 162 39;   /* #C9A227 */
+  --bad: 194 85 93;     /* #C2555D */
+  --info: 74 147 184;   /* #4A93B8 */
+
+  /* Radius — sharp/small by design, not a generic scale. */
+  --r-sm: 3px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+
+  /* Type — mirrors tailwind.config.js's fontFamily.sans/mono; kept as a plain CSS var too since a few
+     base-layer selectors (.label, .hud-bg's siblings) are hand-written CSS, not Tailwind utility classes. */
+  --font-sans: 'Space Grotesk Variable', 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Aliases under the mockups' own spelling. The .dc.html source writes `font-family: var(--mono)` /
+     `var(--sans)`, and porting an inline style verbatim is exactly what this rebuild asks Workers to do.
+     Without these, such a paste resolves to nothing — silently, with no build error, falling back to the
+     UA default font. Keep both spellings pointing at the same stack; --font-sans/--font-mono stay the
+     canonical names (tailwind.config.js and index.css's hand-written classes reference those). */
+  --sans: var(--font-sans);
+  --mono: var(--font-mono);
+}

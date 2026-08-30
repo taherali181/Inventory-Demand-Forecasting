@@ -1,0 +1,232 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: rgb(var(--canvas));
+    height: 100%;
+    color-scheme: dark;
+    /*
+     * Tailwind's preflight sets `line-height:1.5` on `html`. The mockup source sets NO line-height on
+     * html/body at all, so every element that doesn't declare its own renders at the UA default
+     * (`normal`, ~1.2) — e.g. the header's ⌘K chip (22px tall in source, not ~24.5px) and every `.label`/
+     * `.kbd` text baseline. Elements that DO declare an explicit line-height in the source (1.5/1.55/1.6/
+     * 1.65, e.g. chat message bodies) are unaffected by this override either way, since a declared value
+     * always beats an inherited one. Fixed once here rather than patching each affected component,
+     * since this is a systemic base-layer drift that would otherwise resurface in every future
+     * Layer 2/3 component that leaves line-height unset.
+     */
+    line-height: normal;
+  }
+
+  #root {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body {
+    @apply bg-canvas text-content antialiased font-sans;
+    margin: 0;
+    height: 100%;
+  }
+
+  ::selection {
+    background: rgb(var(--accent) / 0.25);
+    color: rgb(var(--text));
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+    /* Token radius, not a loose 4px — the scale is 3/6/10/14 and nothing else. */
+    border-radius: var(--r-sm);
+  }
+
+  th,
+  td {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /*
+   * The dotted-grid + scanline background texture used on canvas/overlay surfaces (see the design
+   * brief's Layer-0 notes). Deliberately faint — this is atmosphere, not a pattern meant to be noticed.
+   *
+   * Confirmed absent from the Mobile mockup in the source (flagged inconsistency — do not add it there
+   * without the user's sign-off; see design-reference/design-brief.md).
+   */
+  .hud-bg {
+    background-color: rgb(var(--canvas));
+    background-image:
+      linear-gradient(rgb(255 255 255 / 0.016) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.016) 1px, transparent 1px),
+      repeating-linear-gradient(
+        180deg,
+        rgb(0 0 0 / 0.12) 0,
+        rgb(0 0 0 / 0.12) 1px,
+        transparent 1px,
+        transparent 4px
+      );
+    background-size: 40px 40px, 40px 40px, 100% 4px;
+  }
+
+  /*
+   * The gradient "laser-line" header border — appears ONLY on canvas/overlay surfaces (ChatWithCanvas's
+   * panel, POKanban's panel, the command palette's search row) per the design brief. Never on Login,
+   * Main's plain header, or the chat column.
+   */
+  .laser-line {
+    border-bottom: 2px solid rgb(var(--accent));
+    border-image: linear-gradient(90deg, transparent, rgb(var(--accent) / 0.9), transparent) 1;
+  }
+
+  /* Mono-uppercase system label convention used throughout (sender names, section headers, tab labels). */
+  .label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: rgb(var(--text-3));
+  }
+
+  /*
+   * ---------------------------------------------------------------------------------------------
+   * Shared classes below are transcribed 1:1 from the mockup <style> blocks. Where a value looks odd
+   * (`.kbd`'s 1px vertical padding, `.count-pill`'s 1px) it IS the source value — see the design
+   * brief's "don't paraphrase values" rule. Anything that varies per usage stays a Tailwind utility
+   * on the element instead of moving in here.
+   * ---------------------------------------------------------------------------------------------
+   */
+
+  /* Quick-prompt chip — Main.dc.html `.chip`. */
+  .chip {
+    padding: 9px 14px;
+    border: 1px solid rgb(var(--border));
+    border-radius: var(--r-md);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: rgb(var(--text-2));
+    white-space: nowrap;
+  }
+
+  /* Keyboard hint — CommandPalette.dc.html `.kbd`. */
+  .kbd {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: rgb(var(--text-3));
+    border: 1px solid rgb(var(--border-strong));
+    border-radius: var(--r-sm);
+    padding: 1px 6px;
+  }
+
+  /*
+   * The ⌘K hint in Main.dc.html's header — weaker hairline, roomier padding. Not the same chip.
+   *
+   * MUST stay declared AFTER `.kbd`: it's a base+modifier pair and both ship on the element together
+   * (<Kbd variant="hint">), so the cascade decides `border-color` and `padding`. That's safe here only
+   * because these are hand-written rules in one file whose order I control — the equivalent trick with
+   * two Tailwind utilities is NOT safe (Tailwind's emit order ignores your argument order; see the
+   * SegmentedToggle comment in Button.tsx for the bug that caused). Don't reorder these two blocks.
+   */
+  .kbd--hint {
+    border-color: rgb(var(--border));
+    padding: 3px 8px;
+  }
+
+  /* Count pill — POKanban.dc.html `.count`. */
+  .count-pill {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: rgb(var(--text-3));
+    background: rgb(var(--surface-2));
+    border-radius: 999px;
+    padding: 1px 7px;
+  }
+
+  /* Canvas-panel tab — ChatWithCanvas.dc.html `.tab`. Active state adds the two accent utilities:
+     `text-accent` + `border-b-accent` (the 1.5px bottom border is already declared here). */
+  .tab {
+    padding: 7px 12px;
+    border-radius: var(--r-sm);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: rgb(var(--text-3));
+    border-bottom: 1.5px solid transparent;
+  }
+
+  /* Command-palette result row — CommandPalette.dc.html `.row`. The highlighted row adds `bg-surface-2`
+     (and an accent-colored icon chip) as utilities on top of this. */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid transparent;
+  }
+
+  /*
+   * Command-palette text caret. The source renders a STATIC 2×16px accent block
+   * (`width:2px;height:16px;background:{{accent}};margin-left:2px;vertical-align:middle`) because a
+   * static mockup can't animate. The blink is an extrapolation the design brief asks for explicitly
+   * ("a blinking text-cursor caret (CSS steps() keyframe blink)") — geometry is verbatim, motion is not.
+   */
+  .palette-caret {
+    display: inline-block;
+    width: 2px;
+    height: 16px;
+    margin-left: 2px;
+    vertical-align: middle;
+    background: rgb(var(--accent));
+    animation: palette-caret-blink 1.06s steps(1, end) infinite;
+  }
+}
+
+@keyframes palette-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-strong));
+  border-radius: 999px;
+  border: 3px solid rgb(var(--canvas));
+}
+
+* {
+  scrollbar-color: rgb(var(--border-strong)) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

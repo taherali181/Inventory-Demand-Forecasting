@@ -6,11 +6,12 @@
 
 [![CI / Build Status](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/taherali181/restock)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/React-18.3+-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vite.dev)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org)
-[![Tests](https://img.shields.io/badge/Tests-99%20Backend%20%7C%2018%20Frontend-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
+[![Tests](https://img.shields.io/badge/Tests-99%20Backend-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 <p align="center">
@@ -69,7 +70,7 @@ cd restock
 docker compose up --build
 ```
 
-- **Frontend Studio & AI Copilot**: [http://localhost:3000](http://localhost:3000)
+- **Frontend (chat + canvas shell)**: [http://localhost:3000](http://localhost:3000)
 - **Interactive Backend Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Prometheus Telemetry Metrics**: [http://localhost:8000/metrics](http://localhost:8000/metrics)
 
@@ -97,7 +98,7 @@ alembic upgrade head
 uvicorn main:app --reload --port 8000
 ```
 
-#### 2. Frontend Setup (React 18 & Tailwind CSS)
+#### 2. Frontend Setup (Vite + React 19 + TypeScript & Tailwind CSS)
 
 ```bash
 cd frontend
@@ -109,7 +110,7 @@ npm install
 cp .env.example .env.local
 
 # Start development server
-npm start
+npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
@@ -133,134 +134,127 @@ Restock replaces static CRUD forms with a **fluid, dual-speed operating system**
 
 ---
 
-## 🖥️ The Dual-Canvas Experience
+## 🖥️ The Progressive-Canvas Interface
 
-Restock features a responsive **Dual-Canvas Layout** engineered for operational agility:
-1. **Left Canvas: Autonomous Copilot & Generative UI** — Query data, execute slash commands, trigger ML runs, and approve purchase orders via natural conversation.
-2. **Right Canvas: Context Studio Workspaces** — High-density, real-time interactive sandboxes for executive KPIs, inventory DataGrids, multi-model forecast comparisons, PO Kanban boards, and sales EDA.
+The frontend is **one shell with six screen-states, not a set of routed pages** — there is no `react-router`.
+Chat is the full-width home surface; a canvas panel opens on demand beside it and can escalate to a
+full-bleed board. What's on screen is a function of shell state (`isAuthenticated`, the message log, which
+canvas view is open, whether the palette or mobile sheet is up), which is why "Purchase orders" is a canvas
+mode rather than a URL.
 
 ```
 +-------------------------------------------------------------------------------------------------------------+
-|  RESTOCK  [ ⌘K Omnibar / Fast Search ]                      Status: Healthy  •  Alerts: 3  •  [ Demo Admin ]  |
-+----------------------------------------------------+--------------------------------------------------------+
-|  🤖 CONVERSATIONAL AI COPILOT                      |  📊 CONTEXT STUDIO WORKSPACE                           |
-|                                                    |  [ Dashboard ] [ Inventory ] [ Forecast ] [ POs ]      |
-|  User: "/reorder"                                  |                                                        |
-|                                                    |  📦 Master Inventory & Stock Levels                    |
-|  AI: "Found 2 items below safety threshold:        |  +--------------------------------------------------+  |
-|  ┌──────────────────────────────────────────────┐  |  | Product      Warehouse  On Hand  Avail   Status     |  |
-|  │ Reorder Suggestion · Product #101            │  |  |--------------------------------------------------|  |
-|  │ Stock: 14 | Forecast: 82 | Shortfall: +68    │  |  | Widget Pro   Main Hub   14       14      ⚠️ Low     |  |
-|  │ [ Approve PO (PO-2026-089) ]                 │  |  | Ultra Sensor West WH    240      210     ✅ Normal  |  |
-|  └──────────────────────────────────────────────┘  |  +--------------------------------------------------+  |
-|                                                    |                                                        |
-|  User: "/forecast 101 --horizon 30"                |  📈 Multi-Model Demand Sandbox (SKU #101)              |
-|  AI: "Trained Random Forest model (MAE: 2.14).     |    120 ┤          ╭───╮  Random Forest (P50)           |
-|  Predicted demand over 30 days: 82 units."         |     80 ┤    ╭─────╯   ╰────── Exponential Smoothing    |
-|                                                    |     40 ┤────╯                 Moving Average Baseline  |
-|  [ 💬 Ask Copilot or type /alerts, /stock, /po... ]|      0 └───────────────────────────────────────        |
-+----------------------------------------------------+--------------------------------------------------------+
+| [R]  ACME WAREHOUSING                                     |  ALERTS   REORDER   FORECAST            ⛶   ✕   |
+|      ------------------------------------------------------------------------------------------------------ |
+| [+]  ▪ RESTOCK  02:04                                     |  OPEN ALERTS (1)                                 |
+| [⏱]  Morning — here's where things stand.                 |  ▲ Widget A — SKU-1042                           |
+| [🔍] +------------+ +---------------+ +--------------+    |    12 units left · reorder pt 50 · Main Warehouse |
+|      | TURNOVER   | | STOCKOUT RATE | | ▪ OPEN ALERTS|    |                                                  |
+|      |   0.0×     | |     0.0%      | |      1       |    |  REORDER SUGGESTION                              |
+|      +------------+ +---------------+ +--------------+    |  Widget A → Acme Corp        [ Create PO ]       |
+|                                                           |  Suggested qty: 120 units · lead time 14 days    |
+|                            ( What needs reordering? )     |                                                  |
+|      ▪ RESTOCK  02:04                                     |  FORECAST — SKU-1042, NEXT 14 DAYS               |
+|      Three products are below their reorder point —       |   ╭╌╌╮       ╭╌╌╮                                |
+|      I've opened them in the canvas.                      |  ─┴──┴───────┴──┴──── Exp. smoothing             |
+|                                                           |                       Random forest              |
+| [VT] [ Ask a follow-up...                            ↑ ]  |                                                  |
++-------------------------------------------------------------------------------------------------------------+
 ```
+
+The six states: **Login** · **empty-chat home** · **chat with canvas open** · **PO Kanban expanded** ·
+**⌘K command palette** (an overlay dimming the live app root) · **mobile** (its own composed screen below
+~768px, not a responsive resize of the desktop layout).
 
 ---
 
-## 🤖 Interactive Copilot & Generative UI
+## 🤖 Chat, Canvas & What's Actually Wired
 
-The conversational Copilot does not just output text—it dynamically injects **rich, interactive generative UI widgets** directly into the conversation stream. Each widget is wired directly to backend FastAPI operations.
+**Important, stated plainly: chat replies are scripted, the data is real.** There is no LLM or RAG backend
+yet. Quick-prompt chips and free text map through a deterministic response table
+(`src/lib/scriptedResponses.tsx`) to a canned reply plus a canvas action; anything not in that table gets an
+honest "this is a scripted preview" message rather than a fabricated answer. Everything the canvas *renders*
+is fetched live from the FastAPI backend.
 
 ```mermaid
 flowchart LR
-    UserPrompt["User Prompt / Slash Command\n('/reorder', '/forecast', etc.)"] --> AgentEngine["Autonomous Agent Engine\n(Intent & Entity Extractor)"]
-    AgentEngine --> ToolRegistry["Tool Registry\n(Type-Safe API Dispatcher)"]
-    ToolRegistry --> FastAPI["FastAPI Backend Endpoints\n(/forecast, /stock, /purchase-orders)"]
-    FastAPI --> WidgetRenderer["Generative UI Renderer"]
-    WidgetRenderer --> Widget1["ForecastViewerWidget\n(Interactive Recharts Curve)"]
-    WidgetRenderer --> Widget2["ReorderActionWidget\n(1-Click PO Generator)"]
-    WidgetRenderer --> Widget3["AlertsRadarWidget\n(Threshold Breach Monitor)"]
-    WidgetRenderer --> Widget4["POStepperWidget\n(Multi-Stage Status Stepper)"]
-    WidgetRenderer --> Widget5["StockTableWidget\n(Real-Time Warehouse Ledger)"]
+    Prompt["Quick-prompt chip / free text"] --> Script["scriptedResponses.tsx\n(deterministic reply + canvas action)"]
+    Script --> Shell["ShellContext (useReducer)\ncanvas: null | widgets | kanban"]
+    Shell --> Hooks["Data hooks\n(useCanvasWidgetsData, usePOKanbanData,\nuseDashboardKpiStats, useMobileAlertsData)"]
+    Hooks --> API["FastAPI\n/alerts · /reorder/suggestions · /forecast/compare\n/purchase-orders · /dashboard/kpis"]
+    API --> Canvas["Rendered canvas surfaces"]
 ```
 
-### Generative UI Widget Showcase
+| Surface | Backend source | Notes |
+| :--- | :--- | :--- |
+| KPI stat grid (first message) | `GET /dashboard/kpis?days=30` | Turnover, stockout rate, open-alert count |
+| Alerts list | `GET /alerts` | Product/warehouse names resolved via cached lookups |
+| Reorder recommendation | `GET /reorder/suggestions` | Real shortfall qty and supplier lead time |
+| Forecast chart | `GET /forecast/compare` | Hand-drawn SVG; second series only if a second model was trained |
+| PO Kanban board | `GET /purchase-orders?limit=200` | Real PO numbers, statuses, partial-receipt progress |
+| Login / session | `POST /auth/login`, `GET /auth/me` | Real JWT + silent refresh-and-retry on 401 |
 
-- **`ForecastViewerWidget`**: Renders dynamic forecast curves comparing multiple ML algorithms, displays forecast horizons (7 to 90 days), and overlays historical actuals alongside MAE/RMSE error metrics.
-- **`ReorderActionWidget`**: Displays calculated supply shortfalls ($\text{Current Stock} - \text{Forecasted Demand} < \text{Reorder Point}$) and includes a 1-click **"Create PO"** action that optimistically dispatches procurement orders.
-- **`AlertsRadarWidget`**: Proactively flags low-stock threshold breaches with urgency badges and one-touch triage links.
-- **`POStepperWidget`**: Multi-step visual lifecycle tracker (`Draft` &rarr; `Submitted` &rarr; `Approved` &rarr; `Received`) with instant status transitions.
-- **`StockTableWidget`**: Inline snapshot of warehouse on-hand vs. available quantities with healthy/warning status pills.
-- **`KPISummaryWidget`**: Instant 4-metric executive snapshot (turnover ratio, stockout percentage, forecast accuracy MAPE, total units on hand).
-- **`EDAOverviewWidget`**: Summarizes newly ingested sales CSV datasets with dataset profiling statistics and server-rendered distribution charts.
+Empty states are honest: no trained forecast runs, or nothing currently at risk, renders an explicit
+"nothing here" message rather than a placeholder chart or invented card.
 
 ---
 
-## ⌨️ Command Palette & Slash Commands
+## ⌨️ Command Palette
 
-Restock is designed for keyboard-first navigation. Press <kbd>Ctrl</kbd> + <kbd>K</kbd> (or <kbd>Cmd</kbd> + <kbd>K</kbd>) anywhere to open the Omnibar:
+Press <kbd>Ctrl</kbd> + <kbd>K</kbd> (or <kbd>Cmd</kbd> + <kbd>K</kbd>) anywhere to open the palette;
+<kbd>Esc</kbd> closes whichever overlay is open. The global listener lives in `ShellContext`.
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│  🔍  Search or jump to...                     [ESC]    │
+│  🔍  Search or jump to...▌                     [ESC]   │
 ├────────────────────────────────────────────────────────┤
 │  GO TO                                                 │
-│  📈  Demand forecast             Planning      Jump →  │
-│  📦  Inventory and stock levels Operations    Jump →  │
-│  🛒  Purchase orders             Procurement   Jump →  │
-│  🛡️  Low-stock alerts            Monitoring    Jump →  │
-│  📊  Sales analysis (EDA)        Data          Jump →  │
-│  ⚡  Executive Dashboard         Overview      Jump →  │
+│  📈  Demand forecast             Planning         ↵    │
+│  📦  Inventory and stock levels  Operations            │
+│  🛒  Purchase orders             Procurement           │
+│  🛡️  Low-stock alerts            Monitoring            │
 └────────────────────────────────────────────────────────┘
 ```
 
-### Slash Commands Cheatsheet
-
-| Slash Command | Description | Generative UI Output |
-| :--- | :--- | :--- |
-| `/alerts` | Scan all warehouses for active low-stock breaches | `AlertsRadarWidget` with risk metrics & triage |
-| `/reorder` | Compute reorder suggestions based on demand shortfall | `ReorderActionWidget` with 1-click PO creation |
-| `/forecast [sku]` | Schedule or retrieve future demand forecast curves | `ForecastViewerWidget` with multi-model overlays |
-| `/stock [sku]` | Query current on-hand & available quantities across hubs | `StockTableWidget` with warehouse breakdown |
-| `/po` | View open purchase orders and transit statuses | `POStepperWidget` with delivery timelines |
-| `/kpi [days]` | Compute turnover ratio, stockout rate, and accuracy | `KPISummaryWidget` with 30-day velocity stats |
-| `/eda` | Load statistical distribution metrics from recent CSV uploads | `EDAOverviewWidget` with visual chart previews |
+> The palette's query text and result rows are **display-only** by design — it is not wired to real search.
+> Only the chat-opened canvas surfaces and the Kanban board consume live data.
 
 ---
 
-## 📊 Context Studio Workspaces
+## 📊 Backend Capabilities Behind the Canvas
 
-The right-hand workspace provides dedicated, high-performance operational consoles that stay synchronized with your active session:
+The operational logic below lives in the backend and is reachable over the API, whether or not a given
+frontend surface exposes it yet:
 
-### 1. Executive KPI Dashboard (`/dashboard`)
-- **Inventory Turnover Ratio**: Real-time sales velocity divided by current on-hand inventory ($\frac{\sum \text{Sales}_{30\text{d}}}{\text{Total On-Hand}}$).
-- **Stockout Rate**: Exact percentage of tracked product-warehouse pairs currently at zero available stock ($\frac{N_{\text{zero}}}{N_{\text{total}}} \times 100$).
-- **Forecast Accuracy Tracking**: Mean Absolute Percentage Error (MAPE) and Mean Absolute Error (MAE) evaluated against real ground-truth sales records.
-- **Sales vs. On-Hand Comparison**: Visual volume comparison across configurable periods (7, 30, or 90 days).
+### Executive KPIs (`GET /dashboard/kpis`)
+- **Inventory Turnover Ratio**: Sales velocity over current on-hand inventory ($\frac{\sum \text{Sales}_{30\text{d}}}{\text{Total On-Hand}}$) — a simplified proxy, since there is no COGS tracking or historical inventory snapshot.
+- **Stockout Rate**: Percentage of tracked product-warehouse pairs currently at zero stock ($\frac{N_{\text{zero}}}{N_{\text{total}}} \times 100$).
+- **Forecast Accuracy**: MAE and MAPE evaluated against real ground-truth sales records (MAPE excludes zero-actual days).
 
-### 2. Master Inventory & Stock Levels (`/inventory`)
-- High-density virtualized DataGrid with instantaneous SKU code, product name, and warehouse filtering.
-- Visual stock health indicators (Healthy vs. Low-Stock).
-- **Interactive Stock Adjustment Modal**: Adjust inventory quantities with structured movement tags (`cycle_count`, `damage_writeoff`, `inbound_discrepancy`, `internal_transfer`) and instant optimistic ledger updates.
+### Stock Levels & Audit Trail (`/stock`, `GET /stock/movements`)
+- Atomic, race-safe stock adjustments with structured movement reasons (`cycle_count`, `damage_writeoff`, `inbound_discrepancy`, `internal_transfer`).
+- Full filterable movement ledger by product, warehouse, and date range.
 
-### 3. Demand Forecasting & Model Sandbox (`/forecast`)
+### Demand Forecasting (`/forecast`, `GET /forecast/compare`)
 - **3 Production Algorithms**:
   - **Random Forest Regressor**: Feature-engineered with `lag_1`, `lag_7`, `rolling_mean_7`, `rolling_mean_28`, day-of-week, month cyclical encoding, and calendar holiday flags. Recursive multi-step future forecasting.
-  - **Exponential Smoothing (ETS / Holt-Winters)**: Daily resampled time series modeling with configurable gap-fill strategies (`zero` vs. `interpolate`).
+  - **Exponential Smoothing (ETS / Holt-Winters)**: Daily resampled time series with configurable gap-fill strategies (`zero` vs. `interpolate`).
   - **Moving Average Baseline**: Rolling window benchmark for baseline comparison.
-- Interactive Horizon Slider (7 to 90 calendar days).
-- Multi-Model Overlay: Compare predictions from all trained models simultaneously on a single unified chart.
+- Genuine future-dated forecasts (not a historical backtest), trained in a background task, with persisted models.
+- `/forecast/compare` returns each model type's most recent completed run for a product-warehouse pair.
 
-### 4. Purchase Order Kanban Workflow (`/purchase-orders`)
-- Drag-and-drop / 1-click status advancement across the full procurement lifecycle:
-  `Drafts` &rarr; `Submitted` &rarr; `Approved / In-Transit` &rarr; `Received` (or `Cancelled`).
-- **Partial Receiving Support**: Receive outstanding line items incrementally with automatic atomic inventory updates and stock movement logging.
+### Purchase Order Workflow (`/purchase-orders`)
+- Full procurement lifecycle: `Draft` &rarr; `Submitted` &rarr; `Approved` &rarr; `Partially received` &rarr; `Received` (or `Cancelled`).
+- **Partial Receiving**: Receive outstanding line items incrementally with atomic inventory updates and stock movement logging.
 
-### 5. Low-Stock Alert Triage (`/alerts`)
-- Continuous inventory monitoring comparing available quantities against product-specific reorder points and safety stock levels.
-- **1-Click Recompute**: Recalculates thresholds across all SKUs, auto-resolves recovered inventory, and triggers background email notifications via SMTP.
+### Low-Stock Alerts (`/alerts`)
+- Monitoring of available quantities against product-specific reorder points.
+- **Recompute**: Recalculates thresholds across all SKUs, auto-resolves recovered inventory, and triggers background email notifications via SMTP — but only when a recompute genuinely opens a new alert.
 
-### 6. Sales EDA & Data Ingestion (`/eda` & `/upload`)
-- Drag-and-drop ingestion of legacy sales CSV files (`date, store, item, sales`).
-- Automatic entity bridging (creates legacy warehouses & products on the fly).
-- Server-side Matplotlib/Seaborn statistical profiling: sales trend line, correlation matrix heatmap, sales distribution histogram, and boxplot outliers.
+### Sales EDA & Data Ingestion (`/upload`, `/eda`)
+- Ingestion of legacy sales CSV files (`date, store, item, sales`), validated then persisted in a background task.
+- Automatic entity bridging (creates legacy warehouses & products on the fly), idempotent by `(date, product, warehouse)`.
+- Server-side Matplotlib/Seaborn profiling: sales trend line, correlation matrix heatmap, distribution histogram, and boxplot outliers.
 
 ---
 
@@ -597,13 +591,15 @@ pytest
 # Verify Alembic Migration Schema Consistency
 alembic check
 
-# Run Frontend Jest Test Suite (18 Tests Passing)
+# Lint the frontend (oxlint)
 cd ../frontend
-npm test -- --watchAll=false
+npm run lint
 
-# Test Production Bundle Compilation
+# Type-check and compile the production bundle (runs `tsc -b`, then Vite -> dist/)
 npm run build
 ```
+
+> The frontend has no unit-test suite yet — `npm run lint` and `npm run build` are its automated checks.
 
 ---
 
@@ -629,7 +625,7 @@ npm run build
 
 | Variable | Default Value | Description |
 | :--- | :--- | :--- |
-| `REACT_APP_API_BASE_URL` | `http://127.0.0.1:8000` | Backend API base URL for Axios client requests |
+| `VITE_API_BASE_URL` | `http://127.0.0.1:8000` | Backend API base URL for Axios client requests. Vite only reads `VITE_`-prefixed vars, and bakes them in at build/start time — changing it needs a restart (or an image rebuild under Docker), not just a reload. |
 
 ---
 
@@ -651,21 +647,21 @@ restock/
 │   ├── stock_ops.py            # Thread-safe atomic stock adjustment operations
 │   └── tests/                  # Pytest test suite (99 passing tests)
 │
-├── frontend/
+├── frontend/                   # Vite + React 19 + TypeScript + Tailwind CSS v3
 │   ├── src/
-│   │   ├── ai/                 # Autonomous agent engine & tool registry
-│   │   ├── api/                # Axios API resource clients & 401 retry interceptor
-│   │   ├── charts/             # Recharts theme tokens & chart styling
+│   │   ├── api/                # Axios resource clients & the 401 refresh-and-retry interceptor
 │   │   ├── components/
-│   │   │   ├── chat/           # Copilot stream, input, & Generative UI widgets
-│   │   │   ├── studio/         # High-density Studio workspaces (Dashboard, POs, etc.)
-│   │   │   ├── shell/          # Topbar, Sidebar, Omnibar (Cmd+K), AppShell
-│   │   │   └── ui/             # Reusable UI atoms (Buttons, Badges, Modals, Tables)
-│   │   ├── context/            # AuthContext (JWT session state & auto-restore)
-│   │   ├── store/              # Zustand global workspace store
-│   │   └── pages/              # Route views (Login, Register, Legacy fallbacks)
-│   ├── tailwind.config.js      # Design token system & monochrome palette
-│   └── package.json            # Node.js dependencies & Jest module mappings
+│   │   │   ├── ui/             # Layer 0 primitives (Button, Card, SeverityIcon, brackets, badges)
+│   │   │   ├── shell/          # Layer 1: IconRail, TopHeader, MobileTopBar, ShellContext
+│   │   │   ├── chat/           # Layer 2: the chat surface
+│   │   │   ├── canvas/         # Layer 3: docked alerts/reorder/forecast widgets + PO Kanban
+│   │   │   └── palette/        # Layer 3: the ⌘K command palette
+│   │   ├── hooks/              # Data hooks feeding each canvas surface from the real backend
+│   │   ├── lib/                # Scripted chat-response table & small display helpers
+│   │   ├── screens/            # Layer 4: Login, DesktopShell, MobileShell, CommandPaletteRoot
+│   │   └── styles/             # Design tokens (tokens.css)
+│   ├── tailwind.config.js      # Design token system wired to the CSS custom properties
+│   └── package.json            # Node.js dependencies & Vite/oxlint scripts
 │
 ├── docs/                       # Architectural documentation & upgrade roadmaps
 ├── docker-compose.yml          # Multi-container production orchestration
